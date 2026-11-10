@@ -77,6 +77,7 @@ interface LedgerDao {
     @Query("SELECT * FROM outbox WHERE status IN ('pending', 'retry') AND nextAttemptAt <= :now ORDER BY createdAt, id LIMIT 20")
     suspend fun pending(now: Long): List<OutboxMail>
     @Query("SELECT COUNT(*) FROM outbox WHERE status IN ('pending', 'retry')") suspend fun retryableCount(): Int
+    @Query("SELECT COUNT(*) FROM outbox WHERE status != 'accepted'") fun observeOutstandingMails(): Flow<Int>
     @Query("UPDATE outbox SET status = 'sending', attempts = attempts + 1, lastAttemptAt = :now, error = NULL WHERE id = :id AND status IN ('pending', 'retry')")
     suspend fun claim(id: String, now: Long): Int
     @Query("UPDATE outbox SET status = :status, error = :error, acceptedAt = :acceptedAt, nextAttemptAt = :nextAttemptAt WHERE id = :id")

@@ -22,6 +22,7 @@ data class Settings(
     val sendTime: String,
     val zone: String,
     val startDate: String,
+    val residentMode: Boolean = false,
 ) {
     val captureEnabled get() = captureWechat || captureAlipay
     fun validate() {
@@ -52,6 +53,7 @@ class SettingsStore(context: Context) {
             prefs.getBoolean("auto", false), prefs.getBoolean("wifi", false),
             prefs.getString("time", "08:00")!!, zone,
             prefs.getString("start", LocalDate.now(ZoneId.of(zone)).toString())!!,
+            prefs.getBoolean("resident", false),
         )
     }
     @Synchronized fun save(s: Settings) { s.validate(); persist(s); current.value = s }
@@ -60,6 +62,7 @@ class SettingsStore(context: Context) {
             .putString("device", s.deviceId).putString("recipient", s.recipient).putString("client", s.clientId)
             .putBoolean("wechat", s.captureWechat).putBoolean("alipay", s.captureAlipay)
             .putBoolean("auto", s.autoSend).putBoolean("wifi", s.wifiOnly).putString("time", s.sendTime)
-            .putString("zone", s.zone).putString("start", s.startDate).commit()) { "无法保存设置" }
+            .putString("zone", s.zone).putString("start", s.startDate).putBoolean("resident", s.residentMode)
+            .commit()) { "无法保存设置" }
     }
 }

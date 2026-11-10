@@ -19,6 +19,7 @@ class PayWhyModel(application: Application) : AndroidViewModel(application) {
     val unexported = app.db.ledger().observeUnexported().stateIn(viewModelScope, sharing, 0)
     val busy = MutableStateFlow(false)
     val message = MutableStateFlow<String?>(null)
+    var pendingNotificationSave: Settings? = null
     private fun action(block: suspend () -> String) {
         if (busy.value) return
         busy.value = true
@@ -29,7 +30,7 @@ class PayWhyModel(application: Application) : AndroidViewModel(application) {
             finally { busy.value = false }
         }
     }
-    fun save(s: Settings) = action {
+    fun save(s: Settings, notice: String = "设置已保存") = action {
         app.deliveryMutex.withLock {
             s.validate()
             val old = app.settings.value
@@ -40,7 +41,7 @@ class PayWhyModel(application: Application) : AndroidViewModel(application) {
             app.settings.save(s)
             Scheduling.configure(app)
         }
-        "设置已保存"
+        notice
     }
     fun completeLogin(intent: Intent) = action {
         app.auth.complete(intent)

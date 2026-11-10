@@ -1,6 +1,9 @@
 package io.github.yufeisun5.paywhy
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings as AndroidSettings
 import androidx.activity.ComponentActivity
@@ -8,7 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.foundation.background
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,10 +20,18 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.core.content.ContextCompat
+import io.github.yufeisun5.paywhy.background.ResidentMode
+import io.github.yufeisun5.paywhy.background.ResidentState
 import io.github.yufeisun5.paywhy.capture.PaymentListener
 import io.github.yufeisun5.paywhy.core.amountText
 import io.github.yufeisun5.paywhy.data.Observation
@@ -29,15 +40,29 @@ import io.github.yufeisun5.paywhy.data.Settings
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val model: PayWhyModel by viewModels()
     private val login = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         result.data?.let(model::completeLogin) ?: run { model.message.value = "登录已取消" }
     }
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val pending = model.pendingNotificationSave
+        model.pendingNotificationSave = null
+        pending?.let {
+            if (granted && ResidentMode.canShowNotification(this)) model.save(it)
+            else model.save(it.copy(residentMode = false), "通知未获准显示，已保存其他设置并使用静默模式")
+        }
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                model.app.settings.flow.collect { ResidentMode.apply(model.app) }
+            }
+        }
         setContent {
             MaterialTheme(colorScheme = lightColorScheme(primary = Color(0xFF176B53),
                 secondaryContainer = Color(0xFFD6EADF), surfaceVariant = Color(0xFFE5ECE5),
@@ -47,18 +72,37 @@ class MainActivity : ComponentActivity() {
                     runCatching { login.launch(model.app.auth.loginIntent()) }
                         .onFailure { model.message.value = it.message ?: "无法打开系统浏览器" }
                 }, onNotifications = { openSettings(AndroidSettings.ACTION_NOTIFICATION_LISTENER_SETTINGS) },
-                    onBattery = { openSettings(AndroidSettings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS) })
+                    onBattery = { openSettings(AndroidSettings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS) },
+                    onSave = ::saveWithPermission,
+                    onNotificationDisplay = {
+                        runCatching { startActivity(Intent(AndroidSettings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(AndroidSettings.EXTRA_APP_PACKAGE, packageName)) }
+                            .onFailure { model.message.value = "请在手机应用设置中允许 PayWhy 显示通知" }
+                    })
             }
         }
     }
     private fun openSettings(action: String) {
         runCatching { startActivity(Intent(action)) }.onFailure { model.message.value = "请在手机设置中手动打开对应权限页面" }
     }
+    private fun saveWithPermission(s: Settings) {
+        runCatching { s.validate() }.onFailure { model.message.value = it.message; return }
+        if (!s.residentMode) { model.save(s); return }
+        ResidentMode.createChannel(this)
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this,
+                Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            model.pendingNotificationSave = s
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else if (!ResidentMode.canShowNotification(this)) {
+            model.save(s.copy(residentMode = false), "通知显示已被系统关闭，已保存其他设置；请先允许通知，再启用常驻模式")
+        } else model.save(s)
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: () -> Unit, onBattery: () -> Unit) {
+private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: () -> Unit, onBattery: () -> Unit,
+                      onSave: (Settings) -> Unit, onNotificationDisplay: () -> Unit) {
     val settings by model.app.settings.flow.collectAsStateWithLifecycle()
     val auth by model.app.auth.flow.collectAsStateWithLifecycle()
     val records by model.records.collectAsStateWithLifecycle()
@@ -66,6 +110,7 @@ private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: 
     val count by model.count.collectAsStateWithLifecycle()
     val unexported by model.unexported.collectAsStateWithLifecycle()
     val connected by PaymentListener.connection.collectAsStateWithLifecycle()
+    val resident by ResidentMode.state.collectAsStateWithLifecycle()
     val captureError by PaymentListener.lastError.collectAsStateWithLifecycle()
     val busy by model.busy.collectAsStateWithLifecycle()
     val message by model.message.collectAsStateWithLifecycle()
@@ -91,6 +136,7 @@ private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: 
                         Text(if (!settings.captureEnabled) "采集尚未开启" else if (connected) "通知监听已连接" else "通知监听未连接，请检查权限")
                         Text("每天 ${settings.sendTime} · ${settings.zone}", style = MaterialTheme.typography.bodySmall)
                         Text(if (settings.autoSend) "每日邮件已开启，省电或断网时可能延迟" else "每日邮件未开启", style = MaterialTheme.typography.bodySmall)
+                        Text(modeStatus(settings, resident), style = MaterialTheme.typography.bodySmall)
                         captureError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(enabled = !busy && auth.authorized, onClick = { model.queue(false) }) { Text("发送新记录") }
@@ -126,7 +172,7 @@ private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: 
                     } }
                 }
                 2 -> SettingsScreen(settings, count, busy, auth.authorized, auth.account,
-                    model::save, onLogin, model::signOut, onNotifications, onBattery)
+                    onSave, onLogin, model::signOut, onNotifications, onBattery, resident, onNotificationDisplay)
             }
         }
     }
@@ -143,10 +189,26 @@ private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: 
 @Composable
 private fun SettingsScreen(s: Settings, count: Int, busy: Boolean, authorized: Boolean, account: String,
                            onSave: (Settings) -> Unit, onLogin: () -> Unit, onSignOut: () -> Unit,
-                           onNotifications: () -> Unit, onBattery: () -> Unit) {
+                           onNotifications: () -> Unit, onBattery: () -> Unit,
+                           resident: ResidentState, onNotificationDisplay: () -> Unit) {
     var draft by remember(s) { mutableStateOf(s) }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(Modifier.fillMaxSize()) {
+    LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { Text("为自己，也为家人", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+        item { Panel {
+            Text("后台运行模式", style = MaterialTheme.typography.titleMedium)
+            ModeOption("静默模式（默认）", "不显示常驻通知，按系统调度采集和发信", !draft.residentMode) {
+                draft = draft.copy(residentMode = false)
+            }
+            ModeOption("常驻通知模式", "前台服务显示状态与快捷入口，适合希望查看运行状态时使用", draft.residentMode) {
+                draft = draft.copy(residentMode = true)
+            }
+            Text(modeStatus(s, resident), style = MaterialTheme.typography.bodySmall)
+            Text("两种模式都按事件采集、每天集中发信。常驻模式不持有唤醒锁、不提高检查频率；实际功耗和后台存活仍受手机系统影响。", style = MaterialTheme.typography.bodySmall)
+            Text("首次常驻需要允许通知。高版本 Android 可从通知切回静默或停止应用；强行停止后需重新打开。", style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = onNotificationDisplay) { Text("通知显示设置") }
+            if (draft.residentMode != s.residentMode) Text("请保存设置使模式生效", color = MaterialTheme.colorScheme.primary)
+        } }
         item { Panel {
             Text("成员标识", style = MaterialTheme.typography.titleMedium)
             Field("成员名称，例如小明／妈妈", draft.memberName) { draft = draft.copy(memberName = it) }
@@ -186,9 +248,29 @@ private fun SettingsScreen(s: Settings, count: Int, busy: Boolean, authorized: B
             OutlinedButton(onClick = onBattery) { Text("查看系统电池优化设置") }
             Text("先使用默认省电设置；若实测漏采或延迟严重，再为 PayWhy 允许后台运行／自启动。", style = MaterialTheme.typography.bodySmall)
         } }
-        item { Button(onClick = { onSave(draft) }, enabled = !busy && draft != s, modifier = Modifier.fillMaxWidth()) { Text("保存设置") } }
-        item { Text("PayWhy 0.1.0 · 本地优先 · 开源\nUTF-8 纯文本邮件与附件；无自建服务器、广告或分析 SDK。卸载将删除本机记录与登录凭据，请先投递需要保留的数据。", style = MaterialTheme.typography.bodySmall) }
+        item { Text("PayWhy ${BuildConfig.VERSION_NAME} · 本地优先 · 开源\nUTF-8 纯文本邮件与附件；无自建服务器、广告或分析 SDK。卸载将删除本机记录与登录凭据，请先投递需要保留的数据。", style = MaterialTheme.typography.bodySmall) }
     }
+    Surface(tonalElevation = 2.dp) {
+        Button(onClick = { onSave(draft) }, enabled = !busy && draft != s,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) { Text("保存设置") }
+    }
+    }
+}
+
+@Composable private fun ModeOption(title: String, detail: String, selected: Boolean, select: () -> Unit) {
+    Row(Modifier.fillMaxWidth().selectable(selected = selected, role = Role.RadioButton, onClick = select)
+        .padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        RadioButton(selected = selected, onClick = null)
+        Column(Modifier.weight(1f).padding(start = 8.dp)) {
+            Text(title, fontWeight = FontWeight.SemiBold)
+            Text(detail, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+private fun modeStatus(settings: Settings, state: ResidentState): String = when {
+    !settings.residentMode -> "当前：静默运行，无常驻通知"
+    state.running -> "当前：常驻通知服务运行中"
+    else -> state.issue ?: "当前：常驻模式待启动，请保持应用在前台"
 }
 
 @Composable private fun Field(label: String, value: String, change: (String) -> Unit) {
