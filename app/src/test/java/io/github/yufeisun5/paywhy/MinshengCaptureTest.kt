@@ -8,6 +8,7 @@ import io.github.yufeisun5.paywhy.capture.CaptureStore
 import io.github.yufeisun5.paywhy.core.*
 import io.github.yufeisun5.paywhy.data.*
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.*
 import org.junit.*
 import org.junit.Assert.*
@@ -23,6 +24,18 @@ class MinshengCaptureTest {
     private lateinit var db: PayWhyDatabase
     @Before fun setup() { db = Room.inMemoryDatabaseBuilder(context, PayWhyDatabase::class.java).build() }
     @After fun close() { db.close() }
+    @Test fun `daily notification query respects member and capture boundaries without recent list limit`() = runBlocking {
+        val dao = db.ledger()
+        fun row(id: String, time: Long, member: String = "test_member") = Observation(id, id, member,
+            "合成", "device", Minsheng.APP, 1, time, 1, "CNY", "outflow", "needs_review", "交易提醒", "合成", false, null)
+        for (i in 0..104) dao.insert(row("r$i", 1_000 + i.toLong()))
+        dao.insert(row("before", 999))
+        dao.insert(row("boundary", 2_000))
+        dao.insert(row("another-member", 1_001, "another_member"))
+        val money = dao.observeMoney("test_member", 1_000, 2_000).first()
+        assertEquals(105, money.size)
+        assertEquals("1.05 积分(CNY)", MoneyTotalBuilder.build(money).outgoing)
+    }
     @Test fun `new sources default off and persist independently`() {
         val store = SettingsStore(context)
         assertFalse(store.value.captureMinsheng)

@@ -61,6 +61,8 @@ data class ReportDay(@PrimaryKey val key: String, val batchId: String)
 
 @Dao
 interface LedgerDao {
+    @Query("SELECT amountMinor, currency, kind, possibleDuplicateOf FROM observations WHERE memberId = :member AND capturedAt >= :start AND capturedAt < :end")
+    fun observeMoney(member: String, start: Long, end: Long): Flow<List<io.github.yufeisun5.paywhy.core.MoneyEvidence>>
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insert(row: Observation): Long
     @Query("SELECT * FROM observations ORDER BY capturedAt DESC LIMIT 100") fun observeRecent(): Flow<List<Observation>>
     @Query("SELECT COUNT(*) FROM observations") fun observeCount(): Flow<Int>

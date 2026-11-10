@@ -2,6 +2,7 @@ package io.github.yufeisun5.paywhy.capture
 
 import android.app.Notification
 import android.content.ComponentName
+import android.content.Context
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationCompat
@@ -63,5 +64,15 @@ class PaymentListener : NotificationListenerService() {
         private val connected = MutableStateFlow(false)
         val connection = connected.asStateFlow()
         val lastError = MutableStateFlow<String?>(null)
+        /** Some OEMs keep the permission but do not bind again after an APK update. */
+        fun ensureConnected(context: Context) {
+            val app = context.applicationContext as PayWhyApp
+            if (!app.settings.value.notificationCaptureEnabled || connected.value) return
+            if (context.packageName !in androidx.core.app.NotificationManagerCompat.getEnabledListenerPackages(context)) return
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now - lastRebindAt <= 60_000) return
+            lastRebindAt = now
+            runCatching { requestRebind(ComponentName(context, PaymentListener::class.java)) }
+        }
     }
 }

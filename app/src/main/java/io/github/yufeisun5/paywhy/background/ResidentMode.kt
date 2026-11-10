@@ -26,7 +26,7 @@ object ResidentMode {
     fun createChannel(context: Context) {
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "后台运行状态", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "显示监听及投递状态，不显示支付金额或原文"
+                description = "显示今日分币种金额及运行状态；锁屏隐藏金额，不显示交易原文"
                 setSound(null, null)
                 enableVibration(false)
                 setShowBadge(false)

@@ -8,7 +8,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
-    <application android:name=".PayWhyApp" android:label="PayWhy" android:icon="@drawable/ic_paywhy"
+    <application android:name=".PayWhyApp" android:label="PayWhy" android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.PayWhy" android:allowBackup="false"
         android:fullBackupContent="@xml/backup_rules" android:dataExtractionRules="@xml/data_extraction_rules"
         android:usesCleartextTraffic="false" android:supportsRtl="true" tools:targetApi="31">

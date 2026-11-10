@@ -9,6 +9,15 @@ import android.provider.Settings as AndroidSettings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.SystemBarStyle
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
+import io.github.yufeisun5.paywhy.ui.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.selection.selectable
@@ -73,17 +82,15 @@ class MainActivity : ComponentActivity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(statusBarStyle = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT))
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 model.app.settings.flow.collect { ResidentMode.apply(model.app) }
             }
         }
         setContent {
-            MaterialTheme(colorScheme = lightColorScheme(primary = Color(0xFF176B53),
-                secondaryContainer = Color(0xFFD6EADF), surfaceVariant = Color(0xFFE5ECE5),
-                surfaceContainer = Color(0xFFECF2EB), surfaceContainerHighest = Color(0xFFE5ECE5),
-                background = Color(0xFFF5F7F4), surface = Color(0xFFFCFDF9))) {
+            PayWhyTheme {
                 AppScreen(model, onLogin = {
                     runCatching { login.launch(model.app.auth.loginIntent()) }
                         .onFailure { model.message.value = it.message ?: "无法打开系统浏览器" }
@@ -101,6 +108,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         smsGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED
+        PaymentListener.ensureConnected(this)
     }
     private fun openSettings(action: String) {
         runCatching { startActivity(Intent(action)) }.onFailure { model.message.value = "请在手机设置中手动打开对应权限页面" }
@@ -152,42 +160,57 @@ private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: 
     val snack = remember { SnackbarHostState() }
     LaunchedEffect(message) { message?.let { snack.showSnackbar(it); model.message.value = null } }
     Scaffold(
-        topBar = { TopAppBar(title = { Column { Text("PayWhy", fontWeight = FontWeight.Bold); Text("把记录寄给未来的自己", style = MaterialTheme.typography.labelMedium) } }) },
-        bottomBar = { NavigationBar { listOf("记录", "投递", "设置").forEachIndexed { i, text ->
-            NavigationBarItem(selected = page == i, onClick = { page = i }, icon = { Text(listOf("◫", "↗", "⚙")[i]) }, label = { Text(text) })
-        } } },
+        topBar = { TopAppBar(
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = Paper.Ground),
+            title = { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.foundation.Image(painterResource(R.drawable.pw_brand), null, Modifier.size(36.dp))
+                Text("PayWhy", fontSize = 21.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp)
+            } }, actions = { Text("本地记录", Modifier.padding(end = 20.dp), style = MaterialTheme.typography.labelMedium, color = Paper.Muted) }) },
+        bottomBar = { Surface(color = Paper.White, shadowElevation = 0.dp) {
+            Column {
+                HorizontalDivider(color = Paper.Line)
+                NavigationBar(containerColor = Paper.White, tonalElevation = 0.dp) {
+                    listOf("记录", "投递", "设置").forEachIndexed { i, text ->
+                        NavigationBarItem(selected = page == i, onClick = { page = i },
+                            icon = { Icon(painterResource(listOf(R.drawable.ic_ledger, R.drawable.ic_delivery, R.drawable.ic_preferences)[i]), null, Modifier.size(22.dp)) },
+                            label = { Text(text) }, colors = NavigationBarItemDefaults.colors(indicatorColor = Paper.Sage))
+                    }
+                }
+            }
+        } },
         snackbarHost = { SnackbarHost(snack) },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             when (page) {
                 0 -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    item { Text("${settings.memberName}的记录", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
-                    item { Panel {
-                        Text("已保存 $count 条 · 待导出 $unexported 条", style = MaterialTheme.typography.titleMedium)
-                        Text(if (!settings.notificationCaptureEnabled) "通知采集未开启" else if (connected) "通知监听已连接" else "通知监听未连接，请检查权限")
-                        if (settings.captureMinshengSms) Text(if (smsGranted) "民生信用卡短信采集已开启" else "短信权限未授予，无法采集新短信", style = MaterialTheme.typography.bodySmall)
-                        Text("每天 ${settings.sendTime} · ${settings.zone}", style = MaterialTheme.typography.bodySmall)
-                        Text(if (settings.autoSend) "每日邮件已开启，省电或断网时可能延迟" else "每日邮件未开启", style = MaterialTheme.typography.bodySmall)
-                        Text(modeStatus(settings, resident), style = MaterialTheme.typography.bodySmall)
-                        captureError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                        smsError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(enabled = !busy && mailReady, onClick = { model.queue(false) }) { Text("发送新记录") }
-                            OutlinedButton(onClick = { page = 2 }) { Text("配置") }
+                    item { Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                        Column(Modifier.weight(1f)) {
+                            Text("收支记录", style = MaterialTheme.typography.headlineMedium)
+                            Text("${settings.memberName} · 保留每笔原币种", style = MaterialTheme.typography.bodySmall, color = Paper.Muted)
                         }
+                        SmallLabel(if (settings.residentMode && resident.running) "常驻模式" else "静默模式")
                     } }
-                    item { Text("近期采集", style = MaterialTheme.typography.titleMedium) }
+                    item { OverviewCard(settings, count, unexported, connected, smsGranted, busy, mailReady,
+                        onSend = { model.queue(false) }, onConfigure = { page = 2 }) }
+                    captureError?.let { issue -> item { Text(issue, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) } }
+                    smsError?.let { issue -> item { Text(issue, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) } }
+                    item { SectionHeading("最近记录", "点按查看原文") }
                     if (records.isEmpty()) item { Panel {
-                        Text("还没有支付记录")
-                        Text("在设置中选择支付通知或民生信用卡短信，授予对应权限。只采集开启后新收到的消息，不读取历史短信。")
-                        Text("记录只保存在手机。邮件发送后，本地记录仍然保留。", style = MaterialTheme.typography.bodySmall)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            SourceMark(R.drawable.pw_brand)
+                            Column {
+                                Text("等待第一笔记录", style = MaterialTheme.typography.titleMedium)
+                                Text("开启入口后，照常付款即可。", style = MaterialTheme.typography.bodySmall, color = Paper.Muted)
+                            }
+                        }
+                        TextButton(onClick = { page = 2 }) { Text("设置采集入口") }
                     } }
                     items(records, key = { it.id }) { RecordCard(it) }
                     if (records.size == 100) item { Text("显示最近 100 条；较早记录仍保存在本地并参与导出。") }
                 }
                 1 -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    item { Text("邮件投递", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+                    item { Column { Text("邮件投递", style = MaterialTheme.typography.headlineMedium); Text("每日整理，寄往你的邮箱", style = MaterialTheme.typography.bodySmall, color = Paper.Muted) } }
                     item { Panel {
                         Text("收件：${settings.recipient.ifBlank { "尚未设置" }}")
                         Text("服务器已接受 ≠ 已进入收件箱。请检查收件箱和垃圾邮件。", style = MaterialTheme.typography.bodySmall)
@@ -229,10 +252,9 @@ private fun SettingsScreen(s: Settings, count: Int, busy: Boolean, authorized: B
     var qqCode by remember { mutableStateOf("") }
     LaunchedEffect(qq.revision) { qqCode = "" }
     Column(Modifier.fillMaxSize()) {
-    LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item { Text("为自己，也为家人", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
-        item { Panel {
-            Text("邮件发送", style = MaterialTheme.typography.titleMedium)
+    LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { Column { Text("偏好设置", style = MaterialTheme.typography.headlineMedium); Text("配置一次，日常自动记录", style = MaterialTheme.typography.bodySmall, color = Paper.Muted) } }
+        item { SettingsGroup("邮件发送", s.recipient.ifBlank { "尚未配置邮箱" }, s.recipient.isBlank()) {
             ModeOption("QQ 邮箱发送（推荐）", "填一次授权码，自动寄到你的 Live 或其他邮箱", draft.mailProvider == "qq") {
                 draft = draft.copy(mailProvider = "qq")
             }
@@ -264,8 +286,7 @@ private fun SettingsScreen(s: Settings, count: Int, busy: Boolean, authorized: B
                 }
             }
         } }
-        item { Panel {
-            Text("后台运行模式", style = MaterialTheme.typography.titleMedium)
+        item { SettingsGroup("后台运行", if (s.residentMode) "常驻通知 · 事件采集" else "静默模式 · 事件采集") {
             ModeOption("静默模式（默认）", "不显示常驻通知，按系统调度采集和发信", !draft.residentMode) {
                 draft = draft.copy(residentMode = false)
             }
@@ -273,48 +294,44 @@ private fun SettingsScreen(s: Settings, count: Int, busy: Boolean, authorized: B
                 draft = draft.copy(residentMode = true)
             }
             Text(modeStatus(s, resident), style = MaterialTheme.typography.bodySmall)
-            Text("两种模式都按事件采集、每天集中发信。常驻模式不持有唤醒锁、不提高检查频率；实际功耗和后台存活仍受手机系统影响。", style = MaterialTheme.typography.bodySmall)
-            Text("首次常驻需要允许通知。高版本 Android 可从通知切回静默或停止应用；强行停止后需重新打开。", style = MaterialTheme.typography.bodySmall)
+            HelpNote("后台与功耗说明", "两种模式都按事件采集、每天集中发信；不持有唤醒锁、不提高检查频率。实际功耗和存活受手机系统影响。首次常驻需允许通知；强行停止后需重新打开应用。")
             OutlinedButton(onClick = onNotificationDisplay) { Text("通知显示设置") }
             if (draft.residentMode != s.residentMode) Text("请保存设置使模式生效", color = MaterialTheme.colorScheme.primary)
         } }
-        item { Panel {
-            Text("成员标识", style = MaterialTheme.typography.titleMedium)
+        item { SettingsGroup("成员与设备", s.memberName) {
             Field("成员名称，例如小明／妈妈", draft.memberName) { draft = draft.copy(memberName = it) }
             OutlinedTextField(value = draft.memberId, onValueChange = { draft = draft.copy(memberId = it.trim()) },
                 enabled = count == 0 && !s.captureEnabled, label = { Text("稳定成员 ID") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            Text("不同家人使用不同 ID。同一人换机时，在首次采集前填入原 ID。名称可修改，ID 用于长期归属。", style = MaterialTheme.typography.bodySmall)
+            HelpNote("家人与换机", "不同家人使用不同 ID。同一人换机时，在首次采集前填入原 ID。名称可修改，ID 用于长期归属。")
             SelectionContainer { Text("设备 ID：${s.deviceId}", style = MaterialTheme.typography.labelSmall) }
         } }
-        item { Panel {
-            Text("支付数据入口", style = MaterialTheme.typography.titleMedium)
-            Text("仅提取所选应用的支付相关通知。微信聊天、其他应用通知不保存；原文和识别结果会发送至配置的邮箱。", style = MaterialTheme.typography.bodySmall)
+        item { SettingsGroup("采集入口", "已开启 ${listOf(s.captureWechat, s.captureAlipay, s.captureMinsheng, s.captureMinshengSms).count { it }} 个来源", !s.captureEnabled) {
+            Text("只保存选中入口的交易消息", style = MaterialTheme.typography.bodySmall, color = Paper.Muted)
             Toggle("采集微信支付通知", draft.captureWechat) { draft = draft.copy(captureWechat = it) }
             Toggle("采集支付宝通知", draft.captureAlipay) { draft = draft.copy(captureAlipay = it) }
             Toggle("采集民生借记卡 App 通知", draft.captureMinsheng) { draft = draft.copy(captureMinsheng = it) }
             OutlinedButton(onClick = onNotifications) { Text("打开系统通知使用权") }
             Toggle("采集民生信用卡交易短信", draft.captureMinshengSms) { draft = draft.copy(captureMinshengSms = it) }
-            Text("保存时申请接收短信权限；仅保存已适配民生号码发来的交易短信，不读取历史短信、不保存验证码或账单提醒。", style = MaterialTheme.typography.bodySmall)
+            HelpNote("采集范围与隐私", "仅保存已适配民生号码的交易短信，不读取历史短信，不保存验证码、账单提醒、微信聊天或其他应用通知。所选交易原文与识别结果会寄至配置邮箱。")
             if (draft.captureMinshengSms) Text(if (smsGranted) "短信权限已授予" else "短信权限待授予；若系统不再弹窗，请到应用权限设置开启")
-            Text("美元等外币保留原币种，不换算。预授权、冲正与还款单独标识；只有“支出”的借记卡提醒保留为待核对资金流出。", style = MaterialTheme.typography.bodySmall)
-            Text("GitHub 下载的 APK 在高版本 Android 上可能需要先到应用信息中允许受限制的设置。", style = MaterialTheme.typography.bodySmall)
+            HelpNote("金额与交易类型", "美元等外币保留原币种，不换算。预授权、冲正与还款单独标识；只有“支出”的借记卡提醒保留为待核对资金流出。")
+            HelpNote("无法授权通知使用权？", "GitHub 下载的 APK 在高版本 Android 上可能需要先到应用信息中允许受限制的设置。")
         } }
-        item { Panel {
-            Text("每日投递与功耗", style = MaterialTheme.typography.titleMedium)
+        item { SettingsGroup("每日投递", if (s.autoSend) "每天 ${s.sendTime} · ${s.zone}" else "自动投递未开启") {
             Toggle("每天自动发送", draft.autoSend) { draft = draft.copy(autoSend = it) }
             Field("发送时间 HH:mm", draft.sendTime) { draft = draft.copy(sendTime = it.trim()) }
             Field("统计时区，例如 Asia/Shanghai", draft.zone) { draft = draft.copy(zone = it.trim()) }
             Toggle("仅在非计费网络发送（通常为 Wi-Fi）", draft.wifiOnly) { draft = draft.copy(wifiOnly = it) }
             Text("按所选时区发送前一日及更早未导出的记录。无新记录也发送状态邮件，不代表当天没有消费。", style = MaterialTheme.typography.bodySmall)
-            Text("默认遵循系统省电策略；不持续联网、不申请精确闹钟。系统休眠、断网或厂商限制可能导致延迟。强行停止后需重新打开应用。", style = MaterialTheme.typography.bodySmall)
+            HelpNote("投递延迟与省电", "默认遵循系统省电策略，不持续联网、不申请精确闹钟。休眠、断网或厂商限制可能导致延迟。强行停止后需重新打开应用。")
             OutlinedButton(onClick = onBattery) { Text("查看系统电池优化设置") }
             Text("先使用默认省电设置；若实测漏采或延迟严重，再为 PayWhy 允许后台运行／自启动。", style = MaterialTheme.typography.bodySmall)
         } }
         item { Text("PayWhy ${BuildConfig.VERSION_NAME} · 本地优先 · 开源\nUTF-8 纯文本邮件与附件；无自建服务器、广告或分析 SDK。卸载将删除本机记录与登录凭据，请先投递需要保留的数据。", style = MaterialTheme.typography.bodySmall) }
     }
-    Surface(tonalElevation = 2.dp) {
+    Surface(color = Paper.Ground) {
         Button(onClick = { onSave(draft, qqCode) }, enabled = !busy && (draft != s || qqCode.isNotBlank() || draft.captureMinshengSms && !smsGranted),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) { Text("保存设置") }
+            shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp).height(48.dp)) { Text("保存设置") }
     }
     }
 }
@@ -344,35 +361,126 @@ private fun modeStatus(settings: Settings, state: ResidentState): String = when 
     }
 }
 @Composable private fun Panel(content: @Composable ColumnScope.() -> Unit) {
-    Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content) }
-}
-@Composable private fun RecordCard(row: Observation) { Panel {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(row.memberName + " · " + when (row.source) {
-            "com.tencent.mm" -> "微信"
-            "com.eg.android.AlipayGphone" -> "支付宝"
-            Minsheng.APP -> "民生借记卡"
-            Minsheng.SMS -> "民生信用卡短信"
-            else -> "其他来源"
-        }, fontWeight = FontWeight.SemiBold)
-        Text(amountText(row.amountMinor)?.let { "${row.currency ?: "币种待核对"} $it" } ?: "金额待核对", fontWeight = FontWeight.Bold)
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Paper.White), border = BorderStroke(1.dp, Paper.Line)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
     }
-    Text(row.title, style = MaterialTheme.typography.bodyMedium)
-    Text(row.text, style = MaterialTheme.typography.bodySmall)
-    Text(when (row.kind) {
-        "authorization" -> "预授权／消费通知，未确认最终入账"
-        "reversal" -> "消费冲正，不是新增消费"
+}
+
+@Composable private fun SettingsGroup(title: String, summary: String, initiallyOpen: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
+    var open by rememberSaveable { mutableStateOf(initiallyOpen) }
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Paper.White),
+        border = BorderStroke(1.dp, Paper.Line)) {
+        Column {
+            Row(Modifier.fillMaxWidth().clickable { open = !open }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium)
+                    Text(summary, style = MaterialTheme.typography.bodySmall, color = Paper.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text(if (open) "−" else "+", fontSize = 21.sp, color = Paper.Muted, modifier = Modifier.padding(start = 12.dp))
+            }
+            if (open) {
+                HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = Paper.Line)
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+            }
+        }
+    }
+}
+
+@Composable private fun HelpNote(title: String, detail: String) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    Column {
+        Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Text(title, style = MaterialTheme.typography.bodySmall, color = Paper.Muted, modifier = Modifier.weight(1f))
+            Text(if (expanded) "−" else "+", color = Paper.Muted)
+        }
+        if (expanded) Text(detail, style = MaterialTheme.typography.bodySmall, color = Paper.Muted)
+    }
+}
+
+@Composable private fun OverviewCard(s: Settings, count: Int, pending: Int, connected: Boolean,
+    smsGranted: Boolean, busy: Boolean, mailReady: Boolean, onSend: () -> Unit, onConfigure: () -> Unit) {
+    val issue = s.notificationCaptureEnabled && !connected || s.captureMinshengSms && !smsGranted
+    Panel {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            StatusDot(if (!s.captureEnabled) "采集未开启" else if (issue) "采集权限待检查" else "自动采集中", s.captureEnabled && !issue)
+            TextButton(onClick = onConfigure, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp), modifier = Modifier.height(28.dp)) {
+                Text("管理入口", style = MaterialTheme.typography.labelMedium)
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(count.toString(), fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Medium, letterSpacing = (-1).sp)
+                Text("已采集记录", style = MaterialTheme.typography.bodySmall, color = Paper.Muted)
+            }
+            VerticalDivider(Modifier.height(42.dp).padding(end = 24.dp), color = Paper.Line)
+            Column(Modifier.weight(1f)) {
+                Text(pending.toString(), fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Medium, letterSpacing = (-1).sp)
+                Text("待投递记录", style = MaterialTheme.typography.bodySmall, color = Paper.Muted)
+            }
+        }
+        HorizontalDivider(Modifier.padding(vertical = 4.dp), color = Paper.Line)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            Icon(painterResource(R.drawable.ic_delivery), null, Modifier.size(18.dp), tint = Paper.Muted)
+            Column(Modifier.weight(1f)) {
+                Text(if (s.autoSend) "每天 ${s.sendTime} 自动寄出" else "每日邮件未开启", style = MaterialTheme.typography.labelLarge)
+                Text(if (s.autoSend) "前一日记录 · ${s.zone}" else "配置邮箱后开启", style = MaterialTheme.typography.labelSmall, color = Paper.Muted)
+            }
+            FilledTonalButton(onClick = onSend, enabled = !busy && mailReady && pending > 0,
+                shape = RoundedCornerShape(10.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) { Text("寄出", style = MaterialTheme.typography.labelLarge) }
+        }
+    }
+}
+
+@Composable private fun RecordCard(row: Observation) {
+    var expanded by rememberSaveable(row.id) { mutableStateOf(false) }
+    val bank = row.source == Minsheng.APP || row.source == Minsheng.SMS
+    val source = when (row.source) {
+        "com.tencent.mm" -> "微信支付"
+        "com.eg.android.AlipayGphone" -> "支付宝"
+        Minsheng.APP -> "民生借记卡"
+        Minsheng.SMS -> "民生信用卡"
+        else -> "其他来源"
+    }
+    val kind = when (row.kind) {
+        "authorization" -> "预授权／消费待确认"
+        "reversal" -> "消费冲正"
         "transfer" -> "转账／还款"
         "refund" -> "退款"
-        "outflow" -> "资金流出，用途待核对"
-        "inflow" -> "资金流入，用途待核对"
+        "outflow" -> "资金流出"
+        "inflow" -> "资金流入"
         "expense" -> "消费提示"
         "income" -> "收入提示"
-        else -> "交易类型待核对"
-    }, style = MaterialTheme.typography.labelSmall)
-    Text("${formatTime(row.capturedAt)} · ${if (row.review == "needs_review") "待核对" else "规则识别，未核实"}", style = MaterialTheme.typography.labelSmall)
-    if (row.possibleDuplicateOf != null) Text("可能与另一条记录重复，已保留供后续核对", style = MaterialTheme.typography.labelSmall)
-} }
+        else -> "类型待核对"
+    }
+    Card(onClick = { expanded = !expanded }, shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Paper.White), border = BorderStroke(1.dp, Paper.Line)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SourceMark(if (row.source == Minsheng.SMS) R.drawable.pw_credit else if (bank) R.drawable.pw_debit else R.drawable.pw_brand)
+                Column(Modifier.weight(1f)) {
+                    Text(source, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("${formatTime(row.capturedAt)} · $kind", style = MaterialTheme.typography.labelSmall, color = Paper.Muted)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(amountText(row.amountMinor) ?: "待核对", fontSize = 21.sp, lineHeight = 26.sp, fontWeight = FontWeight.Medium, letterSpacing = (-0.4).sp)
+                    Text(row.currency ?: "币种未知", style = MaterialTheme.typography.labelSmall, color = Paper.Muted)
+                }
+            }
+            if (row.review == "needs_review" || row.possibleDuplicateOf != null) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (row.review == "needs_review") SmallLabel("待核对", warning = true)
+                if (row.possibleDuplicateOf != null) SmallLabel("可能重复", warning = true)
+            }
+            if (expanded) {
+                HorizontalDivider(color = Paper.Line)
+                Text("${row.memberName} · ${row.title}", style = MaterialTheme.typography.labelMedium, color = Paper.Muted)
+                SelectionContainer { Text(row.text, style = MaterialTheme.typography.bodySmall) }
+                Text("保留原始消息，金额与用途以实际账单为准。", style = MaterialTheme.typography.labelSmall, color = Paper.Muted)
+            }
+        }
+    }
+}
 private fun formatTime(time: Long) = DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(time))
 private fun kindLabel(kind: String) = when (kind) { "TEST" -> "测试邮件"; "DAILY" -> "每日邮件"; else -> "手动发送" }
 private fun statusLabel(status: String) = when (status) {
