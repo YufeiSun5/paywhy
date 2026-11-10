@@ -319,6 +319,7 @@ private fun SettingsScreen(s: Settings, count: Int, busy: Boolean, authorized: B
         } }
         item { SettingsGroup("每日投递", if (s.autoSend) "每天 ${s.sendTime} · ${s.zone}" else "自动投递未开启") {
             Toggle("每天自动发送", draft.autoSend) { draft = draft.copy(autoSend = it) }
+            Text("到点发送此前尚未导出的记录；之后的新记录留到下一次。系统省电可能延迟投递。", style = MaterialTheme.typography.bodySmall, color = Paper.Muted)
             Field("发送时间 HH:mm", draft.sendTime) { draft = draft.copy(sendTime = it.trim()) }
             Field("统计时区，例如 Asia/Shanghai", draft.zone) { draft = draft.copy(zone = it.trim()) }
             Toggle("仅在非计费网络发送（通常为 Wi-Fi）", draft.wifiOnly) { draft = draft.copy(wifiOnly = it) }

@@ -12,7 +12,7 @@
 
 字段包括 `record_type=manifest`、`schema=paywhy.daily.v1`、`report_kind`、`batch_id`、`member_id`、`member_name`、`device_id`、`report_date`、`timezone`、`generated_at`、`capture_cutoff_exclusive`、`part`、`parts`、`record_count`、`batch_record_count`、`capture_enabled`、`listener_connected_at_export`。
 
-- `report_date` 是名义报告日期；DAILY 的截止是该日期次日零点（所选时区），只包含在截止之前采集且尚未导出的事件。
+- `report_date` 是名义报告日期；从 0.4.3 起，DAILY 的截止是该日期设置的发送时间（所选时区），只包含在截止之前采集且尚未导出的事件。当天启用可在当天到点生成；截止之后的记录留到下一批，系统延迟执行也不会改变该批截止。0.4.2 及以前使用次日零点作为截止，解析时应始终以 `capture_cutoff_exclusive` 为准。
 - `generated_at`、通知时间和采集时间为 ISO 8601 UTC。不要把采集时间当作支付发生时间。
 - 导出是增量：可能带有之前日期漏投递／尚未导出的记录，也可能因为手动发送已导出而没有新记录。
 - `listener_connected_at_export` 只描述生成时状态，不证明全天持续监听。

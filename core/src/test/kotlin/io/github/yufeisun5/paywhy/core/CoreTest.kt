@@ -105,10 +105,13 @@ class ReportTest {
 
 class ScheduleTest {
     private val zone = ZoneId.of("Asia/Singapore")
-    @Test fun `daily uses prior day only when send time reached`() {
-        val time = LocalTime.of(8, 0)
-        assertEquals(LocalDate.parse("2026-11-09"), ReportSchedule.latestDueDate(Instant.parse("2026-11-10T00:00:00Z"), zone, time))
-        assertEquals(LocalDate.parse("2026-11-08"), ReportSchedule.latestDueDate(Instant.parse("2026-11-09T23:59:59Z"), zone, time))
+    @Test fun `first day becomes due at the configured evening time`() {
+        val time = LocalTime.of(23, 10)
+        assertEquals(LocalDate.parse("2026-11-09"), ReportSchedule.latestDueDate(Instant.parse("2026-11-10T15:09:59Z"), zone, time))
+        assertEquals(LocalDate.parse("2026-11-10"), ReportSchedule.latestDueDate(Instant.parse("2026-11-10T15:10:00Z"), zone, time))
+        assertEquals(LocalDate.parse("2026-11-10"), ReportSchedule.latestDueDate(Instant.parse("2026-11-10T16:30:00Z"), zone, time))
+        assertEquals(Instant.parse("2026-11-10T15:10:00Z").toEpochMilli(),
+            ReportSchedule.cutoff(LocalDate.parse("2026-11-10"), zone, time))
     }
     @Test fun `next trigger is future and respects timezone`() {
         val now = Instant.parse("2026-11-10T00:00:00Z")
@@ -117,7 +120,8 @@ class ScheduleTest {
     @Test fun `calendar boundaries respect DST short days`() {
         val zone = ZoneId.of("America/New_York")
         val date = LocalDate.parse("2026-03-08")
-        val start = date.atStartOfDay(zone).toInstant().toEpochMilli()
-        assertEquals(23 * 60 * 60 * 1000L, ReportSchedule.cutoff(date, zone) - start)
+        val time = LocalTime.of(23, 10)
+        val start = ReportSchedule.cutoff(date.minusDays(1), zone, time)
+        assertEquals(23 * 60 * 60 * 1000L, ReportSchedule.cutoff(date, zone, time) - start)
     }
 }

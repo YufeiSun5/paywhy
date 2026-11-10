@@ -20,15 +20,14 @@ class ReportRepository(private val app: PayWhyApp) {
         var date = LocalDate.parse(s.startDate)
         var created = 0
         while (date <= latest && created < 31) {
-            if (create("DAILY", date, ReportSchedule.cutoff(date, ZoneId.of(s.zone)), s)) created++
+            if (create("DAILY", date, ReportSchedule.cutoff(date, ZoneId.of(s.zone), LocalTime.parse(s.sendTime)), s)) created++
             date = date.plusDays(1)
         }
     }
 
-    suspend fun manual(test: Boolean): Boolean = app.deliveryMutex.withLock {
+    suspend fun manual(test: Boolean, now: Instant = Instant.now()): Boolean = app.deliveryMutex.withLock {
         val s = app.settings.value
         check(app.mailReady()) { "请先配置所选发件方式：QQ 授权码或微软登录" }
-        val now = Instant.now()
         create(if (test) "TEST" else "MANUAL", now.atZone(ZoneId.of(s.zone)).toLocalDate(), now.toEpochMilli(), s)
     }
 

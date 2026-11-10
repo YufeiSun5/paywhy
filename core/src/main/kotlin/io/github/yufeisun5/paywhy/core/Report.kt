@@ -99,14 +99,18 @@ object ReportBuilder {
 object ReportSchedule {
     fun latestDueDate(now: Instant, zone: ZoneId, sendTime: LocalTime): LocalDate {
         val local = now.atZone(zone)
-        return local.toLocalDate().minusDays(if (local.toLocalTime() >= sendTime) 1 else 2)
+        val today = local.toLocalDate()
+        val due = today.atTime(sendTime).atZone(zone).toInstant()
+        return if (now >= due) today else today.minusDays(1)
     }
     fun nextWake(now: Instant, zone: ZoneId, sendTime: LocalTime): Instant {
         val today = now.atZone(zone).toLocalDate()
         val candidate = today.atTime(sendTime).atZone(zone).toInstant()
         return if (candidate > now) candidate else today.plusDays(1).atTime(sendTime).atZone(zone).toInstant()
     }
-    fun cutoff(date: LocalDate, zone: ZoneId): Long = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+    /** A daily batch ends at its configured send time, not at the following midnight. */
+    fun cutoff(date: LocalDate, zone: ZoneId, sendTime: LocalTime): Long =
+        date.atTime(sendTime).atZone(zone).toInstant().toEpochMilli()
 }
 
 fun amountText(minor: Long?): String? = minor?.let { BigDecimal.valueOf(it, 2).toPlainString() }
