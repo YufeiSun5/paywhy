@@ -68,4 +68,38 @@ class PipelineTest {
             assertFalse(diskValue.contains("synthetic-token"))
         } finally { store.clear() }
     }
+    @Test fun qqAuthorizationIsEncryptedAndBoundToSender() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val secrets = SecretStore(context, "test_qq_auth", "paywhy.test.qq.key")
+        secrets.clear()
+        try {
+            val qq = io.github.yufeisun5.paywhy.auth.QqCredentials(context, secrets)
+            qq.save("TEST@qq.com", "abcdefghijklmnop")
+            val recreated = io.github.yufeisun5.paywhy.auth.QqCredentials(context, secrets)
+            val c = recreated.forMail("test@qq.com", "qq:test@qq.com")
+            assertEquals("abcdefghijklmnop", c.code)
+            assertTrue(runCatching { recreated.forMail("other@qq.com", "qq:other@qq.com") }.isFailure)
+            assertTrue(runCatching { recreated.forMail("test@qq.com", "wrong-identity") }.isFailure)
+            val stored = context.getSharedPreferences("test_qq_auth", 0).getString("state", "")!!
+            assertFalse(stored.contains("abcdefghijklmnop"))
+            assertFalse(stored.contains("test@qq.com"))
+            qq.clear()
+            assertTrue(runCatching { qq.forMail("test@qq.com", "qq:test@qq.com") }.isFailure)
+        } finally { secrets.clear() }
+    }
+
+    @Test fun smtpMimeIsReadableOnAndroidAndHasPlainTextAttachment() {
+        val mail = OutboxMail("test-mail", "test-batch", "test-mail", "TEST", "family@live.com", "",
+            "qq:test@qq.com", "[PayWhy][TEST][妈妈]", "test.txt", "{\"member_name\":\"妈妈\"}\n", 1000,
+            provider = "qq", senderAddress = "test@qq.com")
+        val session = javax.mail.Session.getInstance(java.util.Properties())
+        val message = io.github.yufeisun5.paywhy.mail.QqMail().message(session, mail)
+        val bytes = java.io.ByteArrayOutputStream().also { message.writeTo(it) }.toByteArray()
+        val parsed = javax.mail.internet.MimeMessage(session, bytes.inputStream())
+        assertEquals(mail.subject, parsed.subject)
+        val parts = parsed.content as javax.mail.Multipart
+        assertEquals(mail.body, String(parts.getBodyPart(1).inputStream.readBytes(), Charsets.UTF_8))
+        assertEquals("test.txt", parts.getBodyPart(1).fileName)
+    }
+
 }

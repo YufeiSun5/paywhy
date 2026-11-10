@@ -23,6 +23,8 @@ data class Settings(
     val zone: String,
     val startDate: String,
     val residentMode: Boolean = false,
+    val mailProvider: String = "microsoft",
+    val qqAddress: String = "",
 ) {
     val captureEnabled get() = captureWechat || captureAlipay
     fun validate() {
@@ -32,7 +34,9 @@ data class Settings(
         require(clientId.isBlank() || runCatching { UUID.fromString(clientId) }.isSuccess) { "Client ID 格式不正确" }
         require(runCatching { LocalTime.parse(sendTime) }.isSuccess) { "时间格式应为 HH:mm，例如 08:00" }
         require(runCatching { ZoneId.of(zone) }.isSuccess) { "时区格式不正确，例如 Asia/Shanghai" }
-        require(!autoSend || recipient.isNotBlank() && clientId.isNotBlank()) { "请先配置收件邮箱及微软 Client ID" }
+        require(mailProvider in setOf("qq", "microsoft")) { "请选择发送方式" }
+        require(qqAddress.isBlank() || Regex("[A-Za-z0-9._+-]+@(qq|foxmail)\\.com", RegexOption.IGNORE_CASE).matches(qqAddress)) { "请输入完整 QQ / Foxmail 邮箱地址" }
+        require(!autoSend || recipient.isNotBlank() && (if (mailProvider == "qq") qqAddress.isNotBlank() else clientId.isNotBlank())) { "请先配置收件邮箱和发件账户" }
     }
 }
 
@@ -54,6 +58,8 @@ class SettingsStore(context: Context) {
             prefs.getString("time", "08:00")!!, zone,
             prefs.getString("start", LocalDate.now(ZoneId.of(zone)).toString())!!,
             prefs.getBoolean("resident", false),
+            prefs.getString("mail_provider", null) ?: if ((prefs.getString("client", BuildConfig.MICROSOFT_CLIENT_ID) ?: "").isNotBlank() || prefs.getBoolean("auto", false)) "microsoft" else "qq",
+            prefs.getString("qq_address", "")!!,
         )
     }
     @Synchronized fun save(s: Settings) { s.validate(); persist(s); current.value = s }
@@ -63,6 +69,7 @@ class SettingsStore(context: Context) {
             .putBoolean("wechat", s.captureWechat).putBoolean("alipay", s.captureAlipay)
             .putBoolean("auto", s.autoSend).putBoolean("wifi", s.wifiOnly).putString("time", s.sendTime)
             .putString("zone", s.zone).putString("start", s.startDate).putBoolean("resident", s.residentMode)
+            .putString("mail_provider", s.mailProvider).putString("qq_address", s.qqAddress)
             .commit()) { "无法保存设置" }
     }
 }

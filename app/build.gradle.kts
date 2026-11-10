@@ -13,8 +13,8 @@ android {
         applicationId = "io.github.yufeisun5.paywhy"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
         val publicClientId = providers.gradleProperty("paywhyMicrosoftClientId").orElse("").get()
         require(publicClientId.isEmpty() || runCatching { UUID.fromString(publicClientId) }.isSuccess)
         buildConfigField("String", "MICROSOFT_CLIENT_ID", "\"$publicClientId\"")
@@ -27,7 +27,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+    packaging {
+        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        resources.pickFirsts += setOf("META-INF/LICENSE.txt", "META-INF/NOTICE.txt", "META-INF/LICENSE.md", "META-INF/NOTICE.md")
+    }
     buildTypes { release { isMinifyEnabled = false } }
     lint { abortOnError = true }
     testOptions {
@@ -54,6 +57,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
     implementation("net.openid:appauth:0.11.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.sun.mail:android-mail:1.6.8")
+    implementation("com.sun.mail:android-activation:1.6.8")
+    testImplementation("com.squareup.okhttp3:okhttp-tls:4.12.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("androidx.test:core:1.6.1")

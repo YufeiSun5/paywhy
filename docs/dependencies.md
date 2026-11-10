@@ -8,6 +8,7 @@
 | AndroidX Activity / Compose / Lifecycle / Room / WorkManager | Android UI、本地数据库、后台调度 | Apache-2.0 |
 | [AppAuth-Android](https://github.com/openid/AppAuth-Android) | 浏览器 OAuth、PKCE、令牌刷新 | Apache-2.0 |
 | [OkHttp](https://github.com/square/okhttp) | HTTPS 发信 | Apache-2.0 |
+| [Jakarta Mail for Android 1.6.8 / Android Activation 1.6.8](https://javaee.github.io/javamail/Android) | QQ SMTP / MIME 编码 | EPL-2.0 或 GPL-2.0 with Classpath Exception；此项目按 EPL-2.0 使用，原库许可证随 APK 保留 |
 | JUnit / Robolectric | 仅测试 | EPL-1.0 / MIT |
 
 源码中没有复制调研项目的代码；参照的是 Android / OAuth 官方 API 行为。

@@ -16,6 +16,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import io.github.yufeisun5.paywhy.auth.QqCredentials
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -51,8 +55,8 @@ class MainActivity : ComponentActivity() {
         val pending = model.pendingNotificationSave
         model.pendingNotificationSave = null
         pending?.let {
-            if (granted && ResidentMode.canShowNotification(this)) model.save(it)
-            else model.save(it.copy(residentMode = false), "通知未获准显示，已保存其他设置并使用静默模式")
+            if (granted && ResidentMode.canShowNotification(this)) model.save(it.settings, it.qqCode)
+            else model.save(it.settings.copy(residentMode = false), it.qqCode, "通知未获准显示，已保存其他设置并使用静默模式")
         }
     }
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -85,26 +89,28 @@ class MainActivity : ComponentActivity() {
     private fun openSettings(action: String) {
         runCatching { startActivity(Intent(action)) }.onFailure { model.message.value = "请在手机设置中手动打开对应权限页面" }
     }
-    private fun saveWithPermission(s: Settings) {
+    private fun saveWithPermission(s: Settings, qqCode: String) {
         runCatching { s.validate() }.onFailure { model.message.value = it.message; return }
-        if (!s.residentMode) { model.save(s); return }
+        if (!s.residentMode) { model.save(s, qqCode); return }
         ResidentMode.createChannel(this)
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this,
                 Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            model.pendingNotificationSave = s
+            model.pendingNotificationSave = PayWhyModel.SaveRequest(s, qqCode)
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else if (!ResidentMode.canShowNotification(this)) {
-            model.save(s.copy(residentMode = false), "通知显示已被系统关闭，已保存其他设置；请先允许通知，再启用常驻模式")
-        } else model.save(s)
+            model.save(s.copy(residentMode = false), qqCode, "通知显示已被系统关闭，已保存其他设置；请先允许通知，再启用常驻模式")
+        } else model.save(s, qqCode)
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: () -> Unit, onBattery: () -> Unit,
-                      onSave: (Settings) -> Unit, onNotificationDisplay: () -> Unit) {
+                      onSave: (Settings, String) -> Unit, onNotificationDisplay: () -> Unit) {
     val settings by model.app.settings.flow.collectAsStateWithLifecycle()
     val auth by model.app.auth.flow.collectAsStateWithLifecycle()
+    val qq by model.app.qq.flow.collectAsStateWithLifecycle()
+    val mailReady = if (settings.mailProvider == "qq") qq.address.isNotBlank() && qq.address == QqCredentials.normalize(settings.qqAddress) else auth.authorized
     val records by model.records.collectAsStateWithLifecycle()
     val mails by model.mails.collectAsStateWithLifecycle()
     val count by model.count.collectAsStateWithLifecycle()
@@ -139,7 +145,7 @@ private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: 
                         Text(modeStatus(settings, resident), style = MaterialTheme.typography.bodySmall)
                         captureError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(enabled = !busy && auth.authorized, onClick = { model.queue(false) }) { Text("发送新记录") }
+                            Button(enabled = !busy && mailReady, onClick = { model.queue(false) }) { Text("发送新记录") }
                             OutlinedButton(onClick = { page = 2 }) { Text("配置") }
                         }
                     } }
@@ -156,8 +162,8 @@ private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: 
                     item { Text("邮件投递", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
                     item { Panel {
                         Text("收件：${settings.recipient.ifBlank { "尚未设置" }}")
-                        Text("已由微软接受 ≠ 已进入收件箱。请检查收件箱、垃圾邮件和已发送邮件。", style = MaterialTheme.typography.bodySmall)
-                        Button(enabled = !busy && auth.authorized, onClick = { model.queue(true) }) { Text("发送测试邮件") }
+                        Text("服务器已接受 ≠ 已进入收件箱。请检查收件箱和垃圾邮件。", style = MaterialTheme.typography.bodySmall)
+                        Button(enabled = !busy && mailReady, onClick = { model.queue(true) }) { Text("发送测试邮件") }
                     } }
                     if (mails.isEmpty()) item { Text("尚无投递记录。测试邮件不会包含你的支付数据。") }
                     items(mails, key = { it.id }) { mail -> Panel {
@@ -172,7 +178,7 @@ private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: 
                     } }
                 }
                 2 -> SettingsScreen(settings, count, busy, auth.authorized, auth.account,
-                    onSave, onLogin, model::signOut, onNotifications, onBattery, resident, onNotificationDisplay)
+                    onSave, onLogin, model::signOut, onNotifications, onBattery, resident, onNotificationDisplay, qq)
             }
         }
     }
@@ -188,13 +194,48 @@ private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: 
 
 @Composable
 private fun SettingsScreen(s: Settings, count: Int, busy: Boolean, authorized: Boolean, account: String,
-                           onSave: (Settings) -> Unit, onLogin: () -> Unit, onSignOut: () -> Unit,
+                           onSave: (Settings, String) -> Unit, onLogin: () -> Unit, onSignOut: () -> Unit,
                            onNotifications: () -> Unit, onBattery: () -> Unit,
-                           resident: ResidentState, onNotificationDisplay: () -> Unit) {
+                           resident: ResidentState, onNotificationDisplay: () -> Unit, qq: QqCredentials.Status) {
     var draft by remember(s) { mutableStateOf(s) }
+    var qqCode by remember { mutableStateOf("") }
+    LaunchedEffect(qq.revision) { qqCode = "" }
     Column(Modifier.fillMaxSize()) {
     LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { Text("为自己，也为家人", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+        item { Panel {
+            Text("邮件发送", style = MaterialTheme.typography.titleMedium)
+            ModeOption("QQ 邮箱发送（推荐）", "填一次授权码，自动寄到你的 Live 或其他邮箱", draft.mailProvider == "qq") {
+                draft = draft.copy(mailProvider = "qq")
+            }
+            ModeOption("微软邮箱发送", "Live / Outlook 登录授权，需要配置应用 Client ID", draft.mailProvider == "microsoft") {
+                draft = draft.copy(mailProvider = "microsoft"); qqCode = ""
+            }
+            Field("收件邮箱（例如你的 Live 邮箱）", draft.recipient) { draft = draft.copy(recipient = it.trim()) }
+            if (draft.mailProvider == "qq") {
+                Field("发件 QQ 邮箱（完整地址）", draft.qqAddress) { draft = draft.copy(qqAddress = QqCredentials.normalize(it)) }
+                OutlinedTextField(value = qqCode, onValueChange = { qqCode = it },
+                    label = { Text("QQ 邮箱授权码（16 位字母）") }, singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth())
+                val configured = qq.address.isNotBlank() && qq.address == QqCredentials.normalize(draft.qqAddress)
+                Text(if (configured) "授权码已加密保存；留空保留，输入新码可替换。尚需测试收件。" else "尚未保存此邮箱的授权码。这里填写邮箱授权码。")
+                qq.issue?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                Text("获取授权码：登录 QQ 邮箱网页版 → 设置 → 开启 SMTP 服务（通常在账户或账号与安全中）→ 验证后生成授权码。", style = MaterialTheme.typography.bodySmall)
+                Text("授权码只加密保存在手机。保存后到「投递」发送测试邮件；成功收件后开启每日发送。", style = MaterialTheme.typography.bodySmall)
+                if (qq.address.isNotBlank() && s.mailProvider == "qq") TextButton(enabled = !busy, onClick = onSignOut) { Text("清除 QQ 授权码并关闭每日发送") }
+            } else {
+                Text("通过微软官方页面授权，PayWhy 不读取邮箱密码或收件箱。", style = MaterialTheme.typography.bodySmall)
+                Field("微软应用 Client ID", draft.clientId) { draft = draft.copy(clientId = it.trim()) }
+                Text("应用注册步骤见仓库 README，登录前请先保存设置。", style = MaterialTheme.typography.bodySmall)
+                Text(if (authorized) "已连接：$account" else "未连接微软邮箱")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(enabled = !busy && draft == s && s.clientId.isNotBlank(), onClick = onLogin) { Text("微软登录") }
+                    if (authorized && s.mailProvider == "microsoft") TextButton(enabled = !busy, onClick = onSignOut) { Text("退出登录") }
+                }
+            }
+        } }
         item { Panel {
             Text("后台运行模式", style = MaterialTheme.typography.titleMedium)
             ModeOption("静默模式（默认）", "不显示常驻通知，按系统调度采集和发信", !draft.residentMode) {
@@ -226,18 +267,6 @@ private fun SettingsScreen(s: Settings, count: Int, busy: Boolean, authorized: B
             Text("GitHub 下载的 APK 在高版本 Android 上可能需要先到应用信息中允许受限制的设置。", style = MaterialTheme.typography.bodySmall)
         } }
         item { Panel {
-            Text("Live / Outlook 邮箱", style = MaterialTheme.typography.titleMedium)
-            Field("收件邮箱（可填写家庭共用邮箱）", draft.recipient) { draft = draft.copy(recipient = it.trim()) }
-            Text("通过微软官方登录页面授权，只申请发送邮件及维持登录所需权限。PayWhy 不读取邮箱密码或收件箱。", style = MaterialTheme.typography.bodySmall)
-            Field("微软应用 Client ID", draft.clientId) { draft = draft.copy(clientId = it.trim()) }
-            Text("首次需要注册微软公共客户端应用，配置说明见仓库 README。Client ID 是公开标识，不是密钥。登录前请先保存设置。", style = MaterialTheme.typography.bodySmall)
-            Text(if (authorized) "已连接：$account" else "未连接微软邮箱")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(enabled = !busy && draft == s && s.clientId.isNotBlank(), onClick = onLogin) { Text("微软登录") }
-                if (authorized) TextButton(enabled = !busy, onClick = onSignOut) { Text("退出登录") }
-            }
-        } }
-        item { Panel {
             Text("每日投递与功耗", style = MaterialTheme.typography.titleMedium)
             Toggle("每天自动发送", draft.autoSend) { draft = draft.copy(autoSend = it) }
             Field("发送时间 HH:mm", draft.sendTime) { draft = draft.copy(sendTime = it.trim()) }
@@ -251,7 +280,7 @@ private fun SettingsScreen(s: Settings, count: Int, busy: Boolean, authorized: B
         item { Text("PayWhy ${BuildConfig.VERSION_NAME} · 本地优先 · 开源\nUTF-8 纯文本邮件与附件；无自建服务器、广告或分析 SDK。卸载将删除本机记录与登录凭据，请先投递需要保留的数据。", style = MaterialTheme.typography.bodySmall) }
     }
     Surface(tonalElevation = 2.dp) {
-        Button(onClick = { onSave(draft) }, enabled = !busy && draft != s,
+        Button(onClick = { onSave(draft, qqCode) }, enabled = !busy && (draft != s || qqCode.isNotBlank()),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) { Text("保存设置") }
     }
     }
@@ -297,6 +326,6 @@ private fun modeStatus(settings: Settings, state: ResidentState): String = when 
 private fun formatTime(time: Long) = DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(time))
 private fun kindLabel(kind: String) = when (kind) { "TEST" -> "测试邮件"; "DAILY" -> "每日邮件"; else -> "手动发送" }
 private fun statusLabel(status: String) = when (status) {
-    "pending" -> "等待发送"; "retry" -> "等待重试"; "sending" -> "发送中"; "accepted" -> "微软已接受"
+    "pending" -> "等待发送"; "retry" -> "等待重试"; "sending" -> "发送中"; "accepted" -> "服务器已接受"
     "uncertain" -> "结果不确定"; else -> "需要处理"
 }

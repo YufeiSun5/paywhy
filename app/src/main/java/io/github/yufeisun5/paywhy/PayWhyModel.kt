@@ -19,7 +19,8 @@ class PayWhyModel(application: Application) : AndroidViewModel(application) {
     val unexported = app.db.ledger().observeUnexported().stateIn(viewModelScope, sharing, 0)
     val busy = MutableStateFlow(false)
     val message = MutableStateFlow<String?>(null)
-    var pendingNotificationSave: Settings? = null
+    class SaveRequest(val settings: Settings, val qqCode: String)
+    var pendingNotificationSave: SaveRequest? = null
     private fun action(block: suspend () -> String) {
         if (busy.value) return
         busy.value = true
@@ -30,7 +31,7 @@ class PayWhyModel(application: Application) : AndroidViewModel(application) {
             finally { busy.value = false }
         }
     }
-    fun save(s: Settings, notice: String = "设置已保存") = action {
+    fun save(s: Settings, qqCode: String = "", notice: String = "设置已保存") = action {
         app.deliveryMutex.withLock {
             s.validate()
             val old = app.settings.value
@@ -38,6 +39,13 @@ class PayWhyModel(application: Application) : AndroidViewModel(application) {
                 "采集开始后不能更改成员 ID；换机时请在首次采集前设置相同 ID。"
             }
             if (s.clientId != old.clientId) app.auth.forget()
+            if (s.mailProvider == "qq") {
+                if (qqCode.isNotBlank()) {
+                    require(s.qqAddress.isNotBlank()) { "请先填写 QQ 发件邮箱" }
+                    app.qq.save(s.qqAddress, qqCode)
+                }
+                require(!s.autoSend || app.qq.ready(s)) { "请先保存 QQ 授权码，再开启每日发送" }
+            }
             app.settings.save(s)
             Scheduling.configure(app)
         }
@@ -50,7 +58,7 @@ class PayWhyModel(application: Application) : AndroidViewModel(application) {
     }
     fun signOut() = action {
         app.deliveryMutex.withLock {
-            app.auth.forget()
+            if (app.settings.value.mailProvider == "qq") app.qq.clear() else app.auth.forget()
             app.settings.save(app.settings.value.copy(autoSend = false))
             Scheduling.configure(app)
         }

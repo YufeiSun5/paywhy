@@ -52,6 +52,8 @@ data class OutboxMail(
     val acceptedAt: Long? = null,
     val error: String? = null,
     val nextAttemptAt: Long = 0,
+    @ColumnInfo(defaultValue = "'microsoft'") val provider: String = "microsoft",
+    @ColumnInfo(defaultValue = "''") val senderAddress: String = "",
 )
 
 @Entity(tableName = "report_days")
@@ -88,5 +90,15 @@ interface LedgerDao {
     suspend fun retry(id: String)
 }
 
-@Database(entities = [Observation::class, OutboxMail::class, ReportDay::class], version = 1, exportSchema = true)
-abstract class PayWhyDatabase : RoomDatabase() { abstract fun ledger(): LedgerDao }
+@Database(entities = [Observation::class, OutboxMail::class, ReportDay::class], version = 2, exportSchema = true)
+abstract class PayWhyDatabase : RoomDatabase() {
+    abstract fun ledger(): LedgerDao
+    companion object {
+        val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE outbox ADD COLUMN provider TEXT NOT NULL DEFAULT 'microsoft'")
+                db.execSQL("ALTER TABLE outbox ADD COLUMN senderAddress TEXT NOT NULL DEFAULT ''")
+            }
+        }
+    }
+}

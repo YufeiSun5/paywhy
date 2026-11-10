@@ -71,17 +71,31 @@ class DeliveryWorker(context: Context, params: WorkerParameters) : CoroutineWork
             for (mail in dao.pending(System.currentTimeMillis())) {
                 val connectivity = app.getSystemService(ConnectivityManager::class.java)
                 if (app.settings.value.wifiOnly && connectivity.isActiveNetworkMetered) return@withLock Result.retry()
+                var qqCredential: io.github.yufeisun5.paywhy.auth.QqCredentials.Credential? = null
                 val token = try {
+                    if (mail.provider != app.settings.value.mailProvider) {
+                        dao.result(mail.id, "failed", "发送方式已切换；请切回创建此邮件的发送方式后重试")
+                        continue
+                    }
+                    if (mail.provider == "qq") {
+                        check(mail.senderAddress == app.settings.value.qqAddress)
+                        qqCredential = app.qq.forMail(mail.senderAddress, mail.authGeneration)
+                        ""
+                    } else {
                     if (mail.clientId != app.settings.value.clientId) throw LoginRequired()
                     app.auth.token(mail.authGeneration)
+                    }
                 } catch (e: CancellationException) { throw e }
                 catch (_: LoginRequired) {
                     dao.result(mail.id, "failed", "请用创建此邮件的微软账户重新登录，然后重试。")
                     continue
+                } catch (_: IllegalStateException) {
+                    dao.result(mail.id, "failed", "请配置创建此邮件的 QQ 邮箱及授权码后重试")
+                    continue
                 } catch (_: Exception) { retryNeeded = true; continue }
                 if (dao.claim(mail.id, System.currentTimeMillis()) == 0) continue
                 try {
-                    val result = app.sender.send(mail, token)
+                    val result = if (mail.provider == "qq") app.qqSender.send(mail, requireNotNull(qqCredential)) else app.sender.send(mail, token)
                     val status = if (result.status == "retry" && mail.attempts >= 9) "failed" else result.status
                     dao.result(mail.id, status, result.reason,
                         if (status == "accepted") System.currentTimeMillis() else null,
