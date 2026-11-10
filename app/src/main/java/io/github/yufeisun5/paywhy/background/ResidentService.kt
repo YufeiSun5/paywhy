@@ -106,7 +106,7 @@ class ResidentService : Service() {
     companion object {
         const val ACTION_SILENT = "io.github.yufeisun5.paywhy.SWITCH_TO_SILENT"
         internal fun statusText(s: Settings, connected: Boolean, count: Int, pending: Int): String {
-            val capture = if (!s.captureEnabled) "采集已关闭" else if (connected) "监听已连接" else "监听未连接，请检查通知使用权"
+            val capture = if (!s.captureEnabled) "采集已关闭" else if (!s.notificationCaptureEnabled) "短信采集已开启，权限状态见应用" else if (connected) "监听已连接" else "监听未连接，请检查通知使用权"
             val mail = if (pending > 0) "待投递或处理 $pending 封" else if (s.autoSend) "每日 ${s.sendTime} 投递" else "每日邮件未开启"
             return "$capture · 已采集 $count 条\n$mail"
         }

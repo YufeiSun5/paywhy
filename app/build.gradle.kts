@@ -13,8 +13,8 @@ android {
         applicationId = "io.github.yufeisun5.paywhy"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
         val publicClientId = providers.gradleProperty("paywhyMicrosoftClientId").orElse("").get()
         require(publicClientId.isEmpty() || runCatching { UUID.fromString(publicClientId) }.isSuccess)
         buildConfigField("String", "MICROSOFT_CLIENT_ID", "\"$publicClientId\"")

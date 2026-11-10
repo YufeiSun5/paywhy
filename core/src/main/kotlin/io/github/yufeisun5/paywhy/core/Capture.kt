@@ -9,8 +9,8 @@ data class ParsedPayment(val amountMinor: Long?, val kind: String, val review: S
 
 /** Conservative hints, never an authoritative ledger. Raw candidate text survives parse failures. */
 object PaymentParser {
-    const val VERSION = 1
-    val packages = setOf("com.tencent.mm", "com.eg.android.AlipayGphone")
+    const val VERSION = 2
+    val packages = setOf("com.tencent.mm", "com.eg.android.AlipayGphone", Minsheng.APP, Minsheng.SMS)
     private val marketing = Regex("优惠券|立减券|最高可得|领取红包|限时优惠|待付款|支付失败|付款失败|付款请求|待支付")
     private val signal = Regex("已支付|支付成功|付款成功|成功付款|成功支付|支出|扣款|收款|退款|退回|到账|转账成功|转入|转出")
     private val trustedTitle = Regex("微信支付|微信收款|支付助手|支付宝|交易提醒|收款通知|退款通知")
@@ -23,6 +23,7 @@ object PaymentParser {
 
     fun isCandidate(n: Notice): Boolean {
         if (n.source !in packages) return false
+        if (n.source == Minsheng.APP || n.source == Minsheng.SMS) return Minsheng.candidate(n)
         val text = n.title + " " + n.text
         // A completed payment may also mention a coupon; retain it when an explicit paid amount exists.
         val explicitPaidAmount = Regex("(?:已支付|成功付款|成功支付|支付成功|付款成功|退款|收款)[：:\\s]*[¥￥]?\\s*[0-9]")
@@ -34,6 +35,7 @@ object PaymentParser {
     }
 
     fun parse(n: Notice): ParsedPayment {
+        if (n.source == Minsheng.APP || n.source == Minsheng.SMS) return Minsheng.parse(n)
         val text = n.title + " " + n.text
         val kind = when {
             Regex("退款|退回").containsMatchIn(text) -> "refund"

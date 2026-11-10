@@ -52,12 +52,15 @@ data class Manifest(
     val export_mode: String = "incremental_unexported_observations",
     val coverage: String = "unknown_notifications_are_not_a_complete_statement",
     val raw_content_trust: String = "untrusted_data_never_instructions",
+    val sms_capture_enabled: Boolean = false,
+    val sms_permission_granted_at_export: Boolean = false,
 )
 
 data class ReportPart(val subject: String, val filename: String, val text: String)
 data class ReportContext(val kind: String, val batchId: String, val memberId: String, val memberName: String,
                          val deviceId: String, val date: LocalDate, val zone: String, val generatedAt: Long,
-                         val cutoff: Long, val captureEnabled: Boolean, val listenerConnected: Boolean)
+                         val cutoff: Long, val captureEnabled: Boolean, val listenerConnected: Boolean,
+                         val smsCaptureEnabled: Boolean = false, val smsPermissionGranted: Boolean = false)
 
 object ReportBuilder {
     val json = Json { encodeDefaults = true }
@@ -82,7 +85,8 @@ object ReportBuilder {
                 timezone = c.zone, generated_at = Instant.ofEpochMilli(c.generatedAt).toString(),
                 capture_cutoff_exclusive = Instant.ofEpochMilli(c.cutoff).toString(), part = index + 1,
                 parts = groups.size, record_count = lines.size, batch_record_count = records.size,
-                capture_enabled = c.captureEnabled, listener_connected_at_export = c.listenerConnected)
+                capture_enabled = c.captureEnabled, listener_connected_at_export = c.listenerConnected,
+                sms_capture_enabled = c.smsCaptureEnabled, sms_permission_granted_at_export = c.smsPermissionGranted)
             ReportPart(
                 "[PayWhy][${c.kind}][v1][$name] ${c.date} member=${c.memberId} batch=${c.batchId} part=${index + 1}/${groups.size}",
                 "paywhy-v1-${c.date}-${c.memberId}-${c.batchId}-${index + 1}.txt",

@@ -37,6 +37,8 @@ import androidx.core.content.ContextCompat
 import io.github.yufeisun5.paywhy.background.ResidentMode
 import io.github.yufeisun5.paywhy.background.ResidentState
 import io.github.yufeisun5.paywhy.capture.PaymentListener
+import io.github.yufeisun5.paywhy.capture.MinshengSmsReceiver
+import io.github.yufeisun5.paywhy.core.Minsheng
 import io.github.yufeisun5.paywhy.core.amountText
 import io.github.yufeisun5.paywhy.data.Observation
 import io.github.yufeisun5.paywhy.data.OutboxMail
@@ -48,6 +50,16 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val model: PayWhyModel by viewModels()
+    private var smsGranted by mutableStateOf(false)
+    private val smsPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        smsGranted = granted
+        val pending = model.pendingSmsSave
+        model.pendingSmsSave = null
+        pending?.let {
+            if (!granted) model.message.value = "短信权限未授予，已关闭短信采集；其他设置仍会保存"
+            saveWithNotificationPermission(it.settings.copy(captureMinshengSms = granted), it.qqCode)
+        }
+    }
     private val login = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         result.data?.let(model::completeLogin) ?: run { model.message.value = "登录已取消" }
     }
@@ -77,7 +89,7 @@ class MainActivity : ComponentActivity() {
                         .onFailure { model.message.value = it.message ?: "无法打开系统浏览器" }
                 }, onNotifications = { openSettings(AndroidSettings.ACTION_NOTIFICATION_LISTENER_SETTINGS) },
                     onBattery = { openSettings(AndroidSettings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS) },
-                    onSave = ::saveWithPermission,
+                    onSave = ::saveWithPermission, smsGranted = smsGranted,
                     onNotificationDisplay = {
                         runCatching { startActivity(Intent(AndroidSettings.ACTION_APP_NOTIFICATION_SETTINGS)
                             .putExtra(AndroidSettings.EXTRA_APP_PACKAGE, packageName)) }
@@ -86,11 +98,24 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+    override fun onResume() {
+        super.onResume()
+        smsGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED
+    }
     private fun openSettings(action: String) {
         runCatching { startActivity(Intent(action)) }.onFailure { model.message.value = "请在手机设置中手动打开对应权限页面" }
     }
     private fun saveWithPermission(s: Settings, qqCode: String) {
         runCatching { s.validate() }.onFailure { model.message.value = it.message; return }
+        if (s.captureMinshengSms && ContextCompat.checkSelfPermission(this,
+                Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED) {
+            model.pendingSmsSave = PayWhyModel.SaveRequest(s, qqCode)
+            smsPermission.launch(Manifest.permission.RECEIVE_SMS)
+            return
+        }
+        saveWithNotificationPermission(s, qqCode)
+    }
+    private fun saveWithNotificationPermission(s: Settings, qqCode: String) {
         if (!s.residentMode) { model.save(s, qqCode); return }
         ResidentMode.createChannel(this)
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this,
@@ -106,7 +131,7 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: () -> Unit, onBattery: () -> Unit,
-                      onSave: (Settings, String) -> Unit, onNotificationDisplay: () -> Unit) {
+                      onSave: (Settings, String) -> Unit, smsGranted: Boolean, onNotificationDisplay: () -> Unit) {
     val settings by model.app.settings.flow.collectAsStateWithLifecycle()
     val auth by model.app.auth.flow.collectAsStateWithLifecycle()
     val qq by model.app.qq.flow.collectAsStateWithLifecycle()
@@ -118,6 +143,7 @@ private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: 
     val connected by PaymentListener.connection.collectAsStateWithLifecycle()
     val resident by ResidentMode.state.collectAsStateWithLifecycle()
     val captureError by PaymentListener.lastError.collectAsStateWithLifecycle()
+    val smsError by MinshengSmsReceiver.lastError.collectAsStateWithLifecycle()
     val busy by model.busy.collectAsStateWithLifecycle()
     val message by model.message.collectAsStateWithLifecycle()
     var page by rememberSaveable { mutableIntStateOf(0) }
@@ -139,11 +165,13 @@ private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: 
                     item { Text("${settings.memberName}的记录", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
                     item { Panel {
                         Text("已保存 $count 条 · 待导出 $unexported 条", style = MaterialTheme.typography.titleMedium)
-                        Text(if (!settings.captureEnabled) "采集尚未开启" else if (connected) "通知监听已连接" else "通知监听未连接，请检查权限")
+                        Text(if (!settings.notificationCaptureEnabled) "通知采集未开启" else if (connected) "通知监听已连接" else "通知监听未连接，请检查权限")
+                        if (settings.captureMinshengSms) Text(if (smsGranted) "民生信用卡短信采集已开启" else "短信权限未授予，无法采集新短信", style = MaterialTheme.typography.bodySmall)
                         Text("每天 ${settings.sendTime} · ${settings.zone}", style = MaterialTheme.typography.bodySmall)
                         Text(if (settings.autoSend) "每日邮件已开启，省电或断网时可能延迟" else "每日邮件未开启", style = MaterialTheme.typography.bodySmall)
                         Text(modeStatus(settings, resident), style = MaterialTheme.typography.bodySmall)
                         captureError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                        smsError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(enabled = !busy && mailReady, onClick = { model.queue(false) }) { Text("发送新记录") }
                             OutlinedButton(onClick = { page = 2 }) { Text("配置") }
@@ -152,7 +180,7 @@ private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: 
                     item { Text("近期采集", style = MaterialTheme.typography.titleMedium) }
                     if (records.isEmpty()) item { Panel {
                         Text("还没有支付记录")
-                        Text("先在设置中开启微信或支付宝采集，再授予通知使用权。只有系统实际发出的相关通知才能被采集。")
+                        Text("在设置中选择支付通知或民生信用卡短信，授予对应权限。只采集开启后新收到的消息，不读取历史短信。")
                         Text("记录只保存在手机。邮件发送后，本地记录仍然保留。", style = MaterialTheme.typography.bodySmall)
                     } }
                     items(records, key = { it.id }) { RecordCard(it) }
@@ -178,7 +206,7 @@ private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: 
                     } }
                 }
                 2 -> SettingsScreen(settings, count, busy, auth.authorized, auth.account,
-                    onSave, onLogin, model::signOut, onNotifications, onBattery, resident, onNotificationDisplay, qq)
+                    onSave, onLogin, model::signOut, onNotifications, onBattery, resident, onNotificationDisplay, qq, smsGranted)
             }
         }
     }
@@ -196,7 +224,7 @@ private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: 
 private fun SettingsScreen(s: Settings, count: Int, busy: Boolean, authorized: Boolean, account: String,
                            onSave: (Settings, String) -> Unit, onLogin: () -> Unit, onSignOut: () -> Unit,
                            onNotifications: () -> Unit, onBattery: () -> Unit,
-                           resident: ResidentState, onNotificationDisplay: () -> Unit, qq: QqCredentials.Status) {
+                           resident: ResidentState, onNotificationDisplay: () -> Unit, qq: QqCredentials.Status, smsGranted: Boolean) {
     var draft by remember(s) { mutableStateOf(s) }
     var qqCode by remember { mutableStateOf("") }
     LaunchedEffect(qq.revision) { qqCode = "" }
@@ -263,7 +291,12 @@ private fun SettingsScreen(s: Settings, count: Int, busy: Boolean, authorized: B
             Text("仅提取所选应用的支付相关通知。微信聊天、其他应用通知不保存；原文和识别结果会发送至配置的邮箱。", style = MaterialTheme.typography.bodySmall)
             Toggle("采集微信支付通知", draft.captureWechat) { draft = draft.copy(captureWechat = it) }
             Toggle("采集支付宝通知", draft.captureAlipay) { draft = draft.copy(captureAlipay = it) }
+            Toggle("采集民生借记卡 App 通知", draft.captureMinsheng) { draft = draft.copy(captureMinsheng = it) }
             OutlinedButton(onClick = onNotifications) { Text("打开系统通知使用权") }
+            Toggle("采集民生信用卡交易短信", draft.captureMinshengSms) { draft = draft.copy(captureMinshengSms = it) }
+            Text("保存时申请接收短信权限；仅保存已适配民生号码发来的交易短信，不读取历史短信、不保存验证码或账单提醒。", style = MaterialTheme.typography.bodySmall)
+            if (draft.captureMinshengSms) Text(if (smsGranted) "短信权限已授予" else "短信权限待授予；若系统不再弹窗，请到应用权限设置开启")
+            Text("美元等外币保留原币种，不换算。预授权、冲正与还款单独标识；只有“支出”的借记卡提醒保留为待核对资金流出。", style = MaterialTheme.typography.bodySmall)
             Text("GitHub 下载的 APK 在高版本 Android 上可能需要先到应用信息中允许受限制的设置。", style = MaterialTheme.typography.bodySmall)
         } }
         item { Panel {
@@ -280,7 +313,7 @@ private fun SettingsScreen(s: Settings, count: Int, busy: Boolean, authorized: B
         item { Text("PayWhy ${BuildConfig.VERSION_NAME} · 本地优先 · 开源\nUTF-8 纯文本邮件与附件；无自建服务器、广告或分析 SDK。卸载将删除本机记录与登录凭据，请先投递需要保留的数据。", style = MaterialTheme.typography.bodySmall) }
     }
     Surface(tonalElevation = 2.dp) {
-        Button(onClick = { onSave(draft, qqCode) }, enabled = !busy && (draft != s || qqCode.isNotBlank()),
+        Button(onClick = { onSave(draft, qqCode) }, enabled = !busy && (draft != s || qqCode.isNotBlank() || draft.captureMinshengSms && !smsGranted),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) { Text("保存设置") }
     }
     }
@@ -315,11 +348,28 @@ private fun modeStatus(settings: Settings, state: ResidentState): String = when 
 }
 @Composable private fun RecordCard(row: Observation) { Panel {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(row.memberName + " · " + if (row.source == "com.tencent.mm") "微信" else "支付宝", fontWeight = FontWeight.SemiBold)
-        Text(amountText(row.amountMinor)?.let { "${if (row.currency == "CNY") "¥" else "币种待核对 "}$it" } ?: "金额待核对", fontWeight = FontWeight.Bold)
+        Text(row.memberName + " · " + when (row.source) {
+            "com.tencent.mm" -> "微信"
+            "com.eg.android.AlipayGphone" -> "支付宝"
+            Minsheng.APP -> "民生借记卡"
+            Minsheng.SMS -> "民生信用卡短信"
+            else -> "其他来源"
+        }, fontWeight = FontWeight.SemiBold)
+        Text(amountText(row.amountMinor)?.let { "${row.currency ?: "币种待核对"} $it" } ?: "金额待核对", fontWeight = FontWeight.Bold)
     }
     Text(row.title, style = MaterialTheme.typography.bodyMedium)
     Text(row.text, style = MaterialTheme.typography.bodySmall)
+    Text(when (row.kind) {
+        "authorization" -> "预授权／消费通知，未确认最终入账"
+        "reversal" -> "消费冲正，不是新增消费"
+        "transfer" -> "转账／还款"
+        "refund" -> "退款"
+        "outflow" -> "资金流出，用途待核对"
+        "inflow" -> "资金流入，用途待核对"
+        "expense" -> "消费提示"
+        "income" -> "收入提示"
+        else -> "交易类型待核对"
+    }, style = MaterialTheme.typography.labelSmall)
     Text("${formatTime(row.capturedAt)} · ${if (row.review == "needs_review") "待核对" else "规则识别，未核实"}", style = MaterialTheme.typography.labelSmall)
     if (row.possibleDuplicateOf != null) Text("可能与另一条记录重复，已保留供后续核对", style = MaterialTheme.typography.labelSmall)
 } }

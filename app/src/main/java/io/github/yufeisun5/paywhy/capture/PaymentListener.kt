@@ -26,11 +26,7 @@ class PaymentListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val app = application as PayWhyApp
         val settings = app.settings.value
-        val enabled = when (sbn.packageName) {
-            "com.tencent.mm" -> settings.captureWechat
-            "com.eg.android.AlipayGphone" -> settings.captureAlipay
-            else -> false
-        }
+        val enabled = settings.captures(sbn.packageName)
         if (!enabled) return // Never extract other apps' content.
         val n = sbn.notification
         val extras = n.extras ?: return

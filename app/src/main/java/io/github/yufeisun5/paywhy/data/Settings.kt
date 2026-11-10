@@ -25,8 +25,18 @@ data class Settings(
     val residentMode: Boolean = false,
     val mailProvider: String = "microsoft",
     val qqAddress: String = "",
+    val captureMinsheng: Boolean = false,
+    val captureMinshengSms: Boolean = false,
 ) {
-    val captureEnabled get() = captureWechat || captureAlipay
+    val notificationCaptureEnabled get() = captureWechat || captureAlipay || captureMinsheng
+    val captureEnabled get() = notificationCaptureEnabled || captureMinshengSms
+    fun captures(source: String): Boolean = when (source) {
+        "com.tencent.mm" -> captureWechat
+        "com.eg.android.AlipayGphone" -> captureAlipay
+        io.github.yufeisun5.paywhy.core.Minsheng.APP -> captureMinsheng
+        io.github.yufeisun5.paywhy.core.Minsheng.SMS -> captureMinshengSms
+        else -> false
+    }
     fun validate() {
         require(memberName.isNotBlank() && memberName.length <= 24 && memberName.none { it.isISOControl() }) { "成员名称须为 1–24 个可见字符" }
         require(Regex("[A-Za-z0-9_-]{4,40}").matches(memberId)) { "成员 ID 须为 4–40 位字母、数字、下划线或短横线" }
@@ -60,6 +70,7 @@ class SettingsStore(context: Context) {
             prefs.getBoolean("resident", false),
             prefs.getString("mail_provider", null) ?: if ((prefs.getString("client", BuildConfig.MICROSOFT_CLIENT_ID) ?: "").isNotBlank() || prefs.getBoolean("auto", false)) "microsoft" else "qq",
             prefs.getString("qq_address", "")!!,
+            prefs.getBoolean("minsheng", false), prefs.getBoolean("minsheng_sms", false),
         )
     }
     @Synchronized fun save(s: Settings) { s.validate(); persist(s); current.value = s }
@@ -70,6 +81,7 @@ class SettingsStore(context: Context) {
             .putBoolean("auto", s.autoSend).putBoolean("wifi", s.wifiOnly).putString("time", s.sendTime)
             .putString("zone", s.zone).putString("start", s.startDate).putBoolean("resident", s.residentMode)
             .putString("mail_provider", s.mailProvider).putString("qq_address", s.qqAddress)
+            .putBoolean("minsheng", s.captureMinsheng).putBoolean("minsheng_sms", s.captureMinshengSms)
             .commit()) { "无法保存设置" }
     }
 }

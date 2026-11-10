@@ -21,6 +21,7 @@ class PayWhyModel(application: Application) : AndroidViewModel(application) {
     val message = MutableStateFlow<String?>(null)
     class SaveRequest(val settings: Settings, val qqCode: String)
     var pendingNotificationSave: SaveRequest? = null
+    var pendingSmsSave: SaveRequest? = null
     private fun action(block: suspend () -> String) {
         if (busy.value) return
         busy.value = true

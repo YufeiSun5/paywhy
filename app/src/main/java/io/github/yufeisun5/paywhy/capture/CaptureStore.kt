@@ -8,11 +8,7 @@ import java.util.UUID
 
 class CaptureStore(private val db: PayWhyDatabase) {
     suspend fun accept(notice: Notice, settings: Settings): Boolean {
-        val enabled = when (notice.source) {
-            "com.tencent.mm" -> settings.captureWechat
-            "com.eg.android.AlipayGphone" -> settings.captureAlipay
-            else -> false
-        }
+        val enabled = settings.captures(notice.source)
         if (!enabled || !PaymentParser.isCandidate(notice)) return false
         val parsed = PaymentParser.parse(notice)
         return db.withTransaction {

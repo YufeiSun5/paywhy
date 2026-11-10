@@ -45,7 +45,8 @@ class ReportRepository(private val app: PayWhyApp) {
             val id = UUID.randomUUID().toString()
             val now = System.currentTimeMillis()
             val context = ReportContext(kind, id, s.memberId, s.memberName, s.deviceId, date, s.zone, now, cutoff,
-                s.captureEnabled, PaymentListener.connection.value)
+                s.captureEnabled, PaymentListener.connection.value, s.captureMinshengSms,
+                androidx.core.content.ContextCompat.checkSelfPermission(app, android.Manifest.permission.RECEIVE_SMS) == android.content.pm.PackageManager.PERMISSION_GRANTED)
             val parts = ReportBuilder.build(context, rows.map { it.record() })
             dao.insertMails(parts.mapIndexed { i, part ->
                 OutboxMail("$id-${i + 1}", id, "$id-${i + 1}", kind, s.recipient, if (s.mailProvider == "qq") "" else s.clientId, identity,
