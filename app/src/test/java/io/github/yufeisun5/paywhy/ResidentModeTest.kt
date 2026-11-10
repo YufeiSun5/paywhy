@@ -51,9 +51,9 @@ class ResidentModeTest {
     @Test fun `notification text only exposes operational status`() {
         val s = SettingsStore(context).value.copy(memberName = "PRIVATE_NAME", recipient = "private@example.invalid",
             captureWechat = true)
-        val text = ResidentService.statusText(s, false, 12, 2)
-        assertTrue(text.contains("监听未连接"))
-        assertTrue(text.contains("已采集 12 条"))
+        val text = ResidentService.statusText(s, false, 2)
+        assertTrue(text.contains("采集连接待检查"))
+        assertTrue(text.contains("2 封待处理"))
         assertTrue(text.contains("2 封"))
         assertFalse(text.contains("PRIVATE_NAME"))
         assertFalse(text.contains("private@example.invalid"))

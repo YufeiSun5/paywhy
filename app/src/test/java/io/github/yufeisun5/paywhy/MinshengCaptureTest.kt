@@ -34,7 +34,7 @@ class MinshengCaptureTest {
         dao.insert(row("another-member", 1_001, "another_member"))
         val money = dao.observeMoney("test_member", 1_000, 2_000).first()
         assertEquals(105, money.size)
-        assertEquals("1.05 积分(CNY)", MoneyTotalBuilder.build(money).outgoing)
+        assertEquals("1.05 积分", MoneyTotalBuilder.build(money).outgoing)
     }
     @Test fun `new sources default off and persist independently`() {
         val store = SettingsStore(context)

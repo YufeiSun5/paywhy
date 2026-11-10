@@ -163,7 +163,7 @@ private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: 
         topBar = { TopAppBar(
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Paper.Ground),
             title = { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                androidx.compose.foundation.Image(painterResource(R.drawable.pw_brand), null, Modifier.size(36.dp))
+                androidx.compose.foundation.Image(painterResource(R.drawable.pw_brand), null, Modifier.size(36.dp), colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Paper.Ink))
                 Text("PayWhy", fontSize = 21.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp)
             } }, actions = { Text("本地记录", Modifier.padding(end = 20.dp), style = MaterialTheme.typography.labelMedium, color = Paper.Muted) }) },
         bottomBar = { Surface(color = Paper.White, shadowElevation = 0.dp) {
@@ -173,7 +173,7 @@ private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: 
                     listOf("记录", "投递", "设置").forEachIndexed { i, text ->
                         NavigationBarItem(selected = page == i, onClick = { page = i },
                             icon = { Icon(painterResource(listOf(R.drawable.ic_ledger, R.drawable.ic_delivery, R.drawable.ic_preferences)[i]), null, Modifier.size(22.dp)) },
-                            label = { Text(text) }, colors = NavigationBarItemDefaults.colors(indicatorColor = Paper.Sage))
+                            label = { Text(text) }, colors = NavigationBarItemDefaults.colors(indicatorColor = Paper.Wash))
                     }
                 }
             }
@@ -212,24 +212,25 @@ private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: 
                 1 -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item { Column { Text("邮件投递", style = MaterialTheme.typography.headlineMedium); Text("每日整理，寄往你的邮箱", style = MaterialTheme.typography.bodySmall, color = Paper.Muted) } }
                     item { Panel {
-                        Text("收件：${settings.recipient.ifBlank { "尚未设置" }}")
-                        Text("服务器已接受 ≠ 已进入收件箱。请检查收件箱和垃圾邮件。", style = MaterialTheme.typography.bodySmall)
-                        Button(enabled = !busy && mailReady, onClick = { model.queue(true) }) { Text("发送测试邮件") }
-                    } }
-                    if (mails.isEmpty()) item { Text("尚无投递记录。测试邮件不会包含你的支付数据。") }
-                    items(mails, key = { it.id }) { mail -> Panel {
-                        Text("${kindLabel(mail.kind)} · ${statusLabel(mail.status)}", fontWeight = FontWeight.SemiBold)
-                        Text(mail.subject, style = MaterialTheme.typography.bodySmall)
-                        Text("${formatTime(mail.createdAt)} · 尝试 ${mail.attempts} 次", style = MaterialTheme.typography.labelSmall)
-                        mail.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TextButton(onClick = { preview = mail }) { Text("查看纯文本") }
-                            if (mail.status in setOf("failed", "uncertain", "retry")) TextButton(enabled = !busy, onClick = { retryMail = mail }) { Text("重试") }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(painterResource(R.drawable.ic_delivery), null, Modifier.size(22.dp), tint = Paper.Ink)
+                            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                Text(if (settings.autoSend) "每天 ${settings.sendTime} 寄出" else "自动投递未开启", style = MaterialTheme.typography.titleMedium)
+                                Text(settings.recipient.ifBlank { "设置你的收件邮箱" }, style = MaterialTheme.typography.bodySmall, color = Paper.Muted)
+                            }
+                            TextButton(onClick = { page = 2 }) { Text("设置") }
                         }
                     } }
+                    val everydayMails = mails.filter { it.kind != "TEST" }
+                    if (everydayMails.isEmpty()) item { Text("寄出的日常小结会留在这里。", style = MaterialTheme.typography.bodySmall, color = Paper.Muted) }
+                    items(everydayMails, key = { it.id }) { mail ->
+                        MailCard(mail, busy, onPreview = { preview = mail }, onRetry = { retryMail = mail })
+                    }
                 }
                 2 -> SettingsScreen(settings, count, busy, auth.authorized, auth.account,
-                    onSave, onLogin, model::signOut, onNotifications, onBattery, resident, onNotificationDisplay, qq, smsGranted)
+                    onSave, onLogin, model::signOut, onNotifications, onBattery, resident, onNotificationDisplay, qq, smsGranted,
+                    mailReady, onTest = { model.queue(true) }, testMails = mails.filter { it.kind == "TEST" },
+                    onPreview = { preview = it }, onRetry = { retryMail = it })
             }
         }
     }
@@ -243,11 +244,38 @@ private fun AppScreen(model: PayWhyModel, onLogin: () -> Unit, onNotifications: 
         dismissButton = { TextButton(onClick = { retryMail = null }) { Text("取消") } }) }
 }
 
+@Composable private fun MailCard(mail: OutboxMail, busy: Boolean, onPreview: () -> Unit, onRetry: () -> Unit) {
+    var expanded by rememberSaveable(mail.id) { mutableStateOf(false) }
+    Panel {
+        Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }, verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(kindLabel(mail.kind), style = MaterialTheme.typography.titleMedium)
+                Text(formatTime(mail.createdAt), style = MaterialTheme.typography.bodySmall, color = Paper.Muted)
+            }
+            SmallLabel(statusLabel(mail.status), mail.status in setOf("failed", "uncertain"))
+            Text(if (expanded) " −" else " +", color = Paper.Muted, modifier = Modifier.padding(start = 8.dp))
+        }
+        mail.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        if (expanded) {
+            Text(mail.subject, style = MaterialTheme.typography.bodySmall, color = Paper.Muted)
+            Text("尝试 ${mail.attempts} 次" + if (mail.status == "accepted") " · 发件服务器已接收，实际收件请以邮箱为准" else "", style = MaterialTheme.typography.labelSmall, color = Paper.Muted)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onPreview) { Text("查看邮件内容") }
+                if (mail.status in setOf("failed", "uncertain", "retry")) TextButton(enabled = !busy, onClick = onRetry) { Text("重试") }
+            }
+        } else if (mail.status in setOf("failed", "uncertain", "retry")) {
+            TextButton(enabled = !busy, onClick = onRetry) { Text("处理投递") }
+        }
+    }
+}
+
 @Composable
 private fun SettingsScreen(s: Settings, count: Int, busy: Boolean, authorized: Boolean, account: String,
                            onSave: (Settings, String) -> Unit, onLogin: () -> Unit, onSignOut: () -> Unit,
                            onNotifications: () -> Unit, onBattery: () -> Unit,
-                           resident: ResidentState, onNotificationDisplay: () -> Unit, qq: QqCredentials.Status, smsGranted: Boolean) {
+                           resident: ResidentState, onNotificationDisplay: () -> Unit, qq: QqCredentials.Status, smsGranted: Boolean,
+                           mailReady: Boolean, onTest: () -> Unit, testMails: List<OutboxMail>,
+                           onPreview: (OutboxMail) -> Unit, onRetry: (OutboxMail) -> Unit) {
     var draft by remember(s) { mutableStateOf(s) }
     var qqCode by remember { mutableStateOf("") }
     LaunchedEffect(qq.revision) { qqCode = "" }
@@ -270,10 +298,10 @@ private fun SettingsScreen(s: Settings, count: Int, busy: Boolean, authorized: B
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     modifier = Modifier.fillMaxWidth())
                 val configured = qq.address.isNotBlank() && qq.address == QqCredentials.normalize(draft.qqAddress)
-                Text(if (configured) "授权码已加密保存；留空保留，输入新码可替换。尚需测试收件。" else "尚未保存此邮箱的授权码。这里填写邮箱授权码。")
+                Text(if (configured) "授权码已加密保存；留空保留，输入新码可替换。" else "尚未保存此邮箱的授权码。这里填写邮箱授权码。")
                 qq.issue?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Text("获取授权码：登录 QQ 邮箱网页版 → 设置 → 开启 SMTP 服务（通常在账户或账号与安全中）→ 验证后生成授权码。", style = MaterialTheme.typography.bodySmall)
-                Text("授权码只加密保存在手机。保存后到「投递」发送测试邮件；成功收件后开启每日发送。", style = MaterialTheme.typography.bodySmall)
+                Text("授权码只加密保存在手机。如需验证收件，可使用设置底部的「辅助工具」。", style = MaterialTheme.typography.bodySmall)
                 if (qq.address.isNotBlank() && s.mailProvider == "qq") TextButton(enabled = !busy, onClick = onSignOut) { Text("清除 QQ 授权码并关闭每日发送") }
             } else {
                 Text("通过微软官方页面授权，PayWhy 不读取邮箱密码或收件箱。", style = MaterialTheme.typography.bodySmall)
@@ -323,10 +351,18 @@ private fun SettingsScreen(s: Settings, count: Int, busy: Boolean, authorized: B
             Field("发送时间 HH:mm", draft.sendTime) { draft = draft.copy(sendTime = it.trim()) }
             Field("统计时区，例如 Asia/Shanghai", draft.zone) { draft = draft.copy(zone = it.trim()) }
             Toggle("仅在非计费网络发送（通常为 Wi-Fi）", draft.wifiOnly) { draft = draft.copy(wifiOnly = it) }
-            Text("按所选时区发送前一日及更早未导出的记录。无新记录也发送状态邮件，不代表当天没有消费。", style = MaterialTheme.typography.bodySmall)
+            Text("按设置时间汇集尚未导出的记录。无新记录也发送状态邮件，不代表当天没有消费。", style = MaterialTheme.typography.bodySmall)
             HelpNote("投递延迟与省电", "默认遵循系统省电策略，不持续联网、不申请精确闹钟。休眠、断网或厂商限制可能导致延迟。强行停止后需重新打开应用。")
             OutlinedButton(onClick = onBattery) { Text("查看系统电池优化设置") }
             Text("先使用默认省电设置；若实测漏采或延迟严重，再为 PayWhy 允许后台运行／自启动。", style = MaterialTheme.typography.bodySmall)
+        } }
+        item { SettingsGroup("辅助工具", "邮箱验证与测试历史") {
+            Text("首次配置或排查投递时使用；测试邮件不包含交易记录。", style = MaterialTheme.typography.bodySmall, color = Paper.Muted)
+            OutlinedButton(enabled = !busy && mailReady && draft == s && qqCode.isBlank(), onClick = onTest) { Text("发送测试邮件") }
+            if (draft != s || qqCode.isNotBlank()) Text("请先保存设置", style = MaterialTheme.typography.bodySmall)
+            if (testMails.isNotEmpty()) SettingsGroup("测试历史", "${testMails.size} 封验证邮件") {
+                testMails.forEach { mail -> MailCard(mail, busy, { onPreview(mail) }, { onRetry(mail) }) }
+            }
         } }
         item { Text("PayWhy ${BuildConfig.VERSION_NAME} · 本地优先 · 开源\nUTF-8 纯文本邮件与附件；无自建服务器、广告或分析 SDK。卸载将删除本机记录与登录凭据，请先投递需要保留的数据。", style = MaterialTheme.typography.bodySmall) }
     }
@@ -426,7 +462,7 @@ private fun modeStatus(settings: Settings, state: ResidentState): String = when 
             Icon(painterResource(R.drawable.ic_delivery), null, Modifier.size(18.dp), tint = Paper.Muted)
             Column(Modifier.weight(1f)) {
                 Text(if (s.autoSend) "每天 ${s.sendTime} 自动寄出" else "每日邮件未开启", style = MaterialTheme.typography.labelLarge)
-                Text(if (s.autoSend) "前一日记录 · ${s.zone}" else "配置邮箱后开启", style = MaterialTheme.typography.labelSmall, color = Paper.Muted)
+                Text(if (s.autoSend) "未投递的新记录 · ${s.zone}" else "配置邮箱后开启", style = MaterialTheme.typography.labelSmall, color = Paper.Muted)
             }
             FilledTonalButton(onClick = onSend, enabled = !busy && mailReady && pending > 0,
                 shape = RoundedCornerShape(10.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) { Text("寄出", style = MaterialTheme.typography.labelLarge) }
@@ -485,6 +521,6 @@ private fun modeStatus(settings: Settings, state: ResidentState): String = when 
 private fun formatTime(time: Long) = DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(time))
 private fun kindLabel(kind: String) = when (kind) { "TEST" -> "测试邮件"; "DAILY" -> "每日邮件"; else -> "手动发送" }
 private fun statusLabel(status: String) = when (status) {
-    "pending" -> "等待发送"; "retry" -> "等待重试"; "sending" -> "发送中"; "accepted" -> "服务器已接受"
+    "pending" -> "等待发送"; "retry" -> "等待重试"; "sending" -> "发送中"; "accepted" -> "已寄出"
     "uncertain" -> "结果不确定"; else -> "需要处理"
 }

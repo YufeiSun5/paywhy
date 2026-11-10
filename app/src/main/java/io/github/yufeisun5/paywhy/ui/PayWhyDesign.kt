@@ -16,24 +16,24 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 object Paper {
-    val Ink = Color(0xFF263D35)
-    val Muted = Color(0xFF727A73)
-    val Ground = Color(0xFFF5F3ED)
-    val White = Color(0xFFFFFEFA)
-    val Line = Color(0xFFE4E5DC)
-    val Sage = Color(0xFFE7EDE3)
-    val Ochre = Color(0xFF8E6C3E)
+    val Ink = Color(0xFF343139)
+    val Muted = Color(0xFF807B83)
+    val Ground = Color(0xFFF7F4EF)
+    val White = Color(0xFFFFFDFA)
+    val Line = Color(0xFFE9E3DD)
+    val Wash = Color(0xFFEEE9F1)
+    val Ochre = Color(0xFF947247)
 }
 
 @Composable fun PayWhyTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = lightColorScheme(primary = Paper.Ink, onPrimary = Paper.White,
-            primaryContainer = Paper.Sage, onPrimaryContainer = Paper.Ink,
-            secondary = Paper.Ochre, secondaryContainer = Paper.Sage,
+            primaryContainer = Paper.Wash, onPrimaryContainer = Paper.Ink,
+            secondary = Paper.Ochre, secondaryContainer = Paper.Wash,
             background = Paper.Ground, onBackground = Paper.Ink,
             surface = Paper.White, onSurface = Paper.Ink, onSurfaceVariant = Paper.Muted,
-            surfaceVariant = Paper.Sage, surfaceContainer = Paper.White,
-            surfaceContainerHighest = Paper.Sage, outline = Color(0xFFA4AAA0), outlineVariant = Paper.Line),
+            surfaceVariant = Paper.Wash, surfaceContainer = Paper.White,
+            surfaceContainerHighest = Paper.Wash, outline = Color(0xFFAAA2AD), outlineVariant = Paper.Line),
         typography = Typography(
             headlineMedium = TextStyle(fontSize = 25.sp, lineHeight = 33.sp, fontWeight = FontWeight.SemiBold),
             titleLarge = TextStyle(fontSize = 20.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold),
@@ -63,15 +63,15 @@ object Paper {
 }
 
 @Composable fun SmallLabel(text: String, warning: Boolean = false) {
-    Surface(color = if (warning) Color(0xFFF3ECDD) else Paper.Sage, shape = RoundedCornerShape(5.dp)) {
+    Surface(color = if (warning) Color(0xFFF3ECDD) else Paper.Wash, shape = RoundedCornerShape(5.dp)) {
         Text(text, Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = if (warning) Paper.Ochre else Paper.Ink,
             style = MaterialTheme.typography.labelSmall)
     }
 }
 
 @Composable fun SourceMark(resource: Int, modifier: Modifier = Modifier) {
-    Box(modifier.size(40.dp).background(Paper.Sage, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+    Box(modifier.size(40.dp).background(Paper.Wash, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
         // Generated artwork includes its own optical padding; the image intentionally fills the tile.
-        androidx.compose.foundation.Image(painterResource(resource), contentDescription = null, modifier = Modifier.size(40.dp))
+        androidx.compose.foundation.Image(painterResource(resource), contentDescription = null, modifier = Modifier.size(40.dp), colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Paper.Ink))
     }
 }

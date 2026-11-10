@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="vertical" android:paddingEnd="4dp">
+    <TextView android:id="@+id/notification_amount"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:textAppearance="@style/TextAppearance.Compat.Notification.Title"
+        android:fontFamily="sans-serif-medium" android:textSize="21sp"
+        android:includeFontPadding="false" android:maxLines="1" android:ellipsize="end" />
+    <TextView android:id="@+id/notification_caption"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:textAppearance="@style/TextAppearance.Compat.Notification.Info"
+        android:textSize="11sp" android:layout_marginTop="3dp"
+        android:includeFontPadding="false" android:maxLines="1" android:ellipsize="end" />
+</LinearLayout>

@@ -13,12 +13,13 @@ data class MoneyTotals(val outgoing: String, val pending: String, val returned: 
         "记录流出：${outgoing.ifEmpty { "暂无" }}",
         pending.takeIf { it.isNotEmpty() }?.let { "待确认：$it" },
         returned.takeIf { it.isNotEmpty() }?.let { "退款／冲正：$it" },
-        if (omitted > 0) "$omitted 条金额不明或疑似重复，未计入" else null,
+        if (omitted > 0) "$omitted 条待核对，未计入" else null,
     ).joinToString("\n")
 }
 
 object MoneyTotalBuilder {
-    private val units = mapOf("CNY" to "积分(CNY)", "USD" to "游戏币(USD)")
+    private val units = mapOf("CNY" to "积分", "USD" to "游戏币",
+        "HKD" to "HK$", "SGD" to "S$", "EUR" to "€", "GBP" to "£", "AUD" to "A$", "JPY" to "¥")
     fun build(rows: List<MoneyEvidence>): MoneyTotals {
         val sums = mutableMapOf<String, MutableMap<String, BigInteger>>()
         var omitted = 0
@@ -31,7 +32,7 @@ object MoneyTotalBuilder {
                 "refund", "reversal" -> "returned"
                 else -> null
             }
-            if (bucket == null || row.amountMinor == null || row.amountMinor <= 0 || row.currency == null || row.possibleDuplicateOf != null) {
+            if (bucket == null || row.amountMinor == null || row.amountMinor <= 0 || row.currency == null || row.currency !in units || row.possibleDuplicateOf != null) {
                 omitted++; continue
             }
             val group = sums.getOrPut(bucket) { mutableMapOf() }

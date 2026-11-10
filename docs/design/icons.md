@@ -30,3 +30,11 @@
 信用卡最终编辑提示词（去除初稿光晕）：
 
 > Edit this icon asset. Preserve the front credit-card silhouette, chip, and offset back card, but remove ALL glow, haze, shadows, texture and gradients completely. STRICTLY FLAT VECTOR-LIKE GRAPHIC. Crisp hard edges with minimal antialiasing only. Front card solid #25483F, chip and rear card solid #C8B89B. Add two short transparent horizontal cutout marks near lower-left of front card. No background of any color: genuine fully transparent RGBA outside the solid shapes. Center the compact symbol on a SQUARE canvas, symbol occupying central 60% so it matches companion app icons. All corners modestly rounded. This is a small 32dp Android UI icon; pixel-perfect clarity, absolutely no lighting effects.
+
+
+## 0.4.4 日常界面收敛
+
+- 界面改为暖白、石墨灰、浅灰紫；原有生成图标保留原素材，应用内使用统一石墨灰着色。
+- 投递页只显示日常邮件，长主题／尝试次数／原文入口按需展开；测试发送和测试历史移入设置底部折叠的辅助工具。
+- 常驻通知使用金额大字与一行状态，展开后显示预授权、退款及待核对信息。去除 CNY / USD 文字，保留“积分”“游戏币”；其他适配币种使用独立符号，不混加金额。
+- 通知采用系统装饰的自定义内容布局与系统文字颜色，支持明暗通知面板。参考 [Android 自定义通知布局](https://developer.android.com/develop/ui/views/notifications/custom-notification)；系统仍决定通知外框及操作区。
