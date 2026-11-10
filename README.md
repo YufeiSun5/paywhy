@@ -5,6 +5,7 @@
 独立开源 Android 应用，无 PayWhy 账号、无自建服务器。支持家庭成员共用收件邮箱，后续分析交给用户选择的 AI 工具。
 
 > 当前为 0.3.0 测试版本。通知不是完整账单；采集范围及后台稳定性需要在实际手机与支付 App 上验证。
+> 已确认入口限制：部分微信付款只有应用内消息，没有系统通知，PayWhy 无法通过通知监听取得。在 iQOO 13 / Android 16 / 微信 8.0.80 上，无障碍读取支付页文字也未通过验证，见 [实测记录](docs/accessibility-validation.md)。
 
 <img src="docs/screenshots/home.png" width="280" alt="记录首页"> <img src="docs/screenshots/qq-settings.png" width="280" alt="QQ 邮箱发送设置">
 
