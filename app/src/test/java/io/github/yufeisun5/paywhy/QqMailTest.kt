@@ -3,7 +3,6 @@ package io.github.yufeisun5.paywhy
 import io.github.yufeisun5.paywhy.auth.QqCredentials
 import io.github.yufeisun5.paywhy.data.OutboxMail
 import io.github.yufeisun5.paywhy.mail.QqMail
-import okhttp3.tls.HandshakeCertificates
 import okhttp3.tls.HeldCertificate
 import org.junit.Assert.*
 import org.junit.Test
@@ -104,8 +103,22 @@ class QqMailTest {
     private class SmtpServer(val finalReply: String? = "250 accepted", val authReply: String = "235 authenticated",
                              val recipientReply: String = "250 recipient ok", certificateName: String = "localhost") : AutoCloseable {
         private val cert = HeldCertificate.Builder().commonName(certificateName).addSubjectAlternativeName(certificateName).build()
-        private val tls = HandshakeCertificates.Builder().heldCertificate(cert).build()
-        private val listener: ServerSocket = tls.sslContext().serverSocketFactory.createServerSocket(0)
+        // Robolectric installs Conscrypt globally on Linux. Use JDK TLS explicitly so host
+        // integration tests do not depend on Android's provider or reflective JDK internals.
+        private fun jdkTls(server: Boolean = false, trust: Boolean = true): javax.net.ssl.SSLContext {
+            val store = java.security.KeyStore.getInstance("JKS").apply { load(null) }
+            val password = "synthetic-test-key".toCharArray()
+            if (server) store.setKeyEntry("server", cert.keyPair.private, password, arrayOf(cert.certificate))
+            else if (trust) store.setCertificateEntry("trusted", cert.certificate)
+            val keys = javax.net.ssl.KeyManagerFactory.getInstance("SunX509", "SunJSSE").apply { init(store, password) }
+            val trusts = javax.net.ssl.TrustManagerFactory.getInstance("PKIX", "SunJSSE").apply {
+                init(if (trust) store else null as java.security.KeyStore?)
+            }
+            return javax.net.ssl.SSLContext.getInstance("TLS", "SunJSSE").apply {
+                init(keys.keyManagers, trusts.trustManagers, java.security.SecureRandom())
+            }
+        }
+        private val listener: ServerSocket = jdkTls(server = true).serverSocketFactory.createServerSocket(0)
         private val executor = Executors.newSingleThreadExecutor()
         @Volatile var username = ""
         @Volatile var password = ""
@@ -152,8 +165,8 @@ class QqMailTest {
             props.setProperty("mail.smtp.host", "localhost")
             props.setProperty("mail.smtp.port", listener.localPort.toString())
             props.setProperty("mail.smtp.timeout", "4000")
-            if (trust) props["mail.smtp.ssl.socketFactory"] = HandshakeCertificates.Builder()
-                .addTrustedCertificate(cert.certificate).build().sslSocketFactory()
+            props["mail.smtp.ssl.socketFactory"] = jdkTls(trust = trust).socketFactory
+            props.setProperty("mail.smtp.socketFactory.fallback", "false")
             return Session.getInstance(props)
         }
         fun await() { job.get(8, TimeUnit.SECONDS) }
